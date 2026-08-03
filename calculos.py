@@ -201,3 +201,42 @@ def gerar_recorrencias_do_mes(mes_destino_str):
 
     return novos_gerados
 
+
+def projetar_recorrencias_do_mes(dados):
+    """
+    Quando um lançamento é criado ou editado com recorrência Semanal ou Quinzenal,
+    gera automaticamente os lançamentos das semanas/quinzenas restantes dentro do próprio mês.
+    """
+    freq = dados.get("frequencia_recorrencia")
+    if freq not in ["Semanal", "Quinzenal"] or not dados.get("vencimento"):
+        return 0
+
+    from datetime import date, timedelta
+    try:
+        dt_venc = date.fromisoformat(dados["vencimento"])
+        mes_atual = dt_venc.strftime("%Y-%m")
+        delta_dias = 7 if freq == "Semanal" else 14
+        proxima_dt = dt_venc + timedelta(days=delta_dias)
+
+        existentes = database.listar_lancamentos(mes_ano=mes_atual)
+        chaves_existentes = set((e["descricao"], e["tipo"], e["esfera"], float(e["valor"]), e["vencimento"]) for e in existentes)
+
+        novos_gerados = 0
+        while proxima_dt.strftime("%Y-%m") == mes_atual:
+            venc_str = proxima_dt.isoformat()
+            chave = (dados["descricao"], dados["tipo"], dados["esfera"], float(dados["valor"]), venc_str)
+            if chave not in chaves_existentes:
+                dados_prox = dict(dados)
+                dados_prox["vencimento"] = venc_str
+                dados_prox["status"] = "Pendente"
+                dados_prox["data_pagamento"] = None
+                database.inserir_lancamento(dados_prox)
+                chaves_existentes.add(chave)
+                novos_gerados += 1
+            proxima_dt += timedelta(days=delta_dias)
+        return novos_gerados
+    except Exception as e:
+        print(f"Erro ao projetar recorrências do mês: {e}")
+        return 0
+
+

@@ -291,25 +291,7 @@ def novo_pagar():
         dados["data_pagamento"] = request.form.get("data_pagamento") or date.today().isoformat()
 
     id_novo = database.inserir_lancamento(dados)
-
-    # Se for Semanal ou Quinzenal, projeta automaticamente as ocorrências restantes dentro do próprio mês
-    if freq in ["Semanal", "Quinzenal"] and dados["vencimento"]:
-        try:
-            dt_venc = date.fromisoformat(dados["vencimento"])
-            mes_atual = dt_venc.strftime("%Y-%m")
-            delta_dias = 7 if freq == "Semanal" else 14
-            proxima_dt = dt_venc + timedelta(days=delta_dias)
-
-            while proxima_dt.strftime("%Y-%m") == mes_atual:
-                dados_prox = dict(dados)
-                dados_prox["vencimento"] = proxima_dt.isoformat()
-                dados_prox["status"] = "Pendente"
-                dados_prox["data_pagamento"] = None
-                database.inserir_lancamento(dados_prox)
-                proxima_dt += timedelta(days=delta_dias)
-        except Exception as e:
-            print(f"Aviso ao gerar parcelas do mês: {e}")
-
+    calculos.projetar_recorrencias_do_mes(dados)
     return redirect(url_for("listar_pagar"))
 
 
@@ -350,7 +332,9 @@ def editar_pagar(id_lancamento):
         dados["data_pagamento"] = None
 
     database.atualizar_lancamento(id_lancamento, dados)
+    calculos.projetar_recorrencias_do_mes(dados)
     return redirect(url_for("listar_pagar"))
+
 
 
 
@@ -466,24 +450,7 @@ def novo_receber():
         dados["data_pagamento"] = request.form.get("data_pagamento") or date.today().isoformat()
 
     id_novo = database.inserir_lancamento(dados)
-
-    if freq in ["Semanal", "Quinzenal"] and dados["vencimento"]:
-        try:
-            dt_venc = date.fromisoformat(dados["vencimento"])
-            mes_atual = dt_venc.strftime("%Y-%m")
-            delta_dias = 7 if freq == "Semanal" else 14
-            proxima_dt = dt_venc + timedelta(days=delta_dias)
-
-            while proxima_dt.strftime("%Y-%m") == mes_atual:
-                dados_prox = dict(dados)
-                dados_prox["vencimento"] = proxima_dt.isoformat()
-                dados_prox["status"] = "Pendente"
-                dados_prox["data_pagamento"] = None
-                database.inserir_lancamento(dados_prox)
-                proxima_dt += timedelta(days=delta_dias)
-        except Exception as e:
-            print(f"Aviso ao gerar parcelas do mês: {e}")
-
+    calculos.projetar_recorrencias_do_mes(dados)
     return redirect(url_for("listar_receber"))
 
 
@@ -530,7 +497,9 @@ def editar_receber(id_lancamento):
         dados["data_pagamento"] = None
 
     database.atualizar_lancamento(id_lancamento, dados)
+    calculos.projetar_recorrencias_do_mes(dados)
     return redirect(url_for("listar_receber"))
+
 
 
 
