@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block titulo %}Meu Perfil — Gestão Financeira{% endblock %}
+
+{% block conteudo %}
+<div class="row justify-content-center mt-3">
+    <div class="col-md-7 col-lg-6">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-lavanda text-white text-center py-3">
+                <h5 class="mb-0 fw-bold" style="color: #6B4E8E;"><i class="bi bi-person-circle me-2"></i> Meu Perfil</h5>
+            </div>
+            <div class="card-body p-4">
+                {% if erro %}
+                    <div class="alert alert-danger" role="alert">{{ erro }}</div>
+                {% endif %}
+                {% if sucesso %}
+                    <div class="alert alert-success" role="alert">{{ sucesso }}</div>
+                {% endif %}
+
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <!-- Foto de Perfil / Avatar -->
+                    <div class="text-center mb-4">
+                        {% if usuario.foto_perfil %}
+                            <img src="{{ url_for('static', filename='uploads/avatars/' + usuario.foto_perfil) }}" 
+                                 alt="Foto de Perfil" class="rounded-circle shadow-sm mb-3" style="width: 110px; height: 110px; object-fit: cover; border: 3px solid #6B4E8E;">
+                        {% else %}
+                            <div class="rounded-circle bg-light d-inline-flex align-items-center justify-content-center mb-3 shadow-sm" style="width: 110px; height: 110px; border: 2px dashed #6B4E8E;">
+                                <span class="fs-1">👤</span>
+                            </div>
+                        {% endif %}
+                        
+                        <div>
+                            <label for="foto_perfil" class="btn btn-sm btn-outline-primary fw-bold">
+                                📷 Selecionar Foto de Perfil
+                            </label>
+                            <input type="file" name="foto_perfil" id="foto_perfil" class="d-none" accept="image/png, image/jpeg, image/jpg, image/webp" onchange="mostrarNomeArquivo(this)">
+                            <div id="nomeArquivoSelecionado" class="small text-muted mt-1"></div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">E-mail Cadastrado</label>
+                        <input type="email" class="form-control bg-light" value="{{ usuario.email }}" readonly disabled>
+                    </div>
+
+                    <div class="row">
+                        <!-- Campo de Saudação -->
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label font-weight-bold">Saudação</label>
+                            <select name="saudacao" class="form-select">
+                                <option value="" {% if not usuario.saudacao %}selected{% endif %}>(Nenhum)</option>
+                                <option value="Sr." {% if usuario.saudacao == 'Sr.' %}selected{% endif %}>Sr.</option>
+                                <option value="Sra." {% if usuario.saudacao == 'Sra.' %}selected{% endif %}>Sra.</option>
+                                <option value="Dr." {% if usuario.saudacao == 'Dr.' %}selected{% endif %}>Dr.</option>
+                                <option value="Dra." {% if usuario.saudacao == 'Dra.' %}selected{% endif %}>Dra.</option>
+                            </select>
+                        </div>
+
+                        <!-- Campo de Nome -->
+                        <div class="col-md-8 mb-3">
+                            <label class="form-label font-weight-bold">Nome de Exibição</label>
+                            <input type="text" name="nome" class="form-control" value="{{ usuario.nome }}" required>
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2 mt-4">
+                        <button type="submit" class="btn btn-success fw-bold py-2">Salvar Perfil</button>
+                    </div>
+                </form>
+
+                <hr class="my-4">
+
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong class="d-block">Segurança da Conta</strong>
+                        <small class="text-muted">Altere sua senha de login com sigilo.</small>
+                    </div>
+                    <a href="{{ url_for('alterar_senha') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-key me-1"></i> Alterar Senha</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function mostrarNomeArquivo(input) {
+        var nomeDiv = document.getElementById("nomeArquivoSelecionado");
+        if (input.files && input.files[0]) {
+            nomeDiv.textContent = "Arquivo selecionado: " + input.files[0].name;
+        } else {
+            nomeDiv.textContent = "";
+        }
+    }
+</script>
+{% endblock %}

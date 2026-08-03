@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+
+{% block titulo %}Contas a Receber — Gestão Financeira{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap">
+    <div>
+        <h3 class="mb-1 fw-bold text-success"><i class="bi bi-arrow-up-circle me-2"></i> Contas a Receber ({{ esfera_filtro }})</h3>
+        <p class="text-muted small mb-0">Controle de receitas, atendimentos e entradas</p>
+    </div>
+
+    <div class="d-flex align-items-center mt-2 mt-md-0">
+        <form method="GET" class="me-2">
+            <input type="month" name="mes" value="{{ mes_ano }}" class="form-select form-select-sm" onchange="this.form.submit()">
+        </form>
+        <button type="button" class="btn btn-success btn-sm fw-bold" data-bs-toggle="modal" data-bs-target="#modalNovaReceita">
+            <i class="bi bi-plus-lg me-1"></i> Nova Receita
+        </button>
+    </div>
+</div>
+
+<!-- Faixa Informativa de Resumo de Entradas -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card border-0 bg-success text-white p-3 shadow-sm rounded-3">
+            <span class="small opacity-75">🟢 Recebido no Mês (Em Caixa)</span>
+            <h4 class="fw-bold mb-0 mt-1">{{ resumo_receber.recebido | moeda_br }}</h4>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 bg-warning text-dark p-3 shadow-sm rounded-3">
+            <span class="small opacity-75">🟡 A Receber (No Prazo)</span>
+            <h4 class="fw-bold mb-0 mt-1">{{ resumo_receber.no_prazo | moeda_br }}</h4>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 bg-danger text-white p-3 shadow-sm rounded-3">
+            <span class="small opacity-75">🔴 Em Atraso (Consolidado)</span>
+            <h4 class="fw-bold mb-0 mt-1">{{ resumo_receber.atrasado | moeda_br }}</h4>
+        </div>
+    </div>
+</div>
+
+<!-- Tabela de Contas a Receber -->
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-body p-0">
+        {% if lancamentos|length == 0 %}
+            <div class="p-4 text-center text-muted">Nenhuma receita/entrada encontrada para este mês.</div>
+        {% else %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Status</th>
+                            <th>Vencimento/Data</th>
+                            <th>Descrição</th>
+                            <th>Esfera</th>
+                            <th>Categoria</th>
+                            <th>Valor</th>
+                            <th>Forma</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for l in lancamentos %}
+                        <tr class="{% if l.status_calculado == 'Recebido' %}table-success opacity-75{% elif l.status_calculado == 'Atrasado' %}table-danger{% endif %}">
+                            <td>
+                                {% if l.status_calculado == 'Recebido' %}
+                                    <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i> Recebido (Em Caixa)</span>
+                                {% elif l.status_calculado == 'Atrasado' %}
+                                    <span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i> Em Atraso</span>
+                                {% else %}
+                                    <span class="badge bg-warning text-dark"><i class="bi bi-clock me-1"></i> A Receber (No Prazo)</span>
+                                {% endif %}
+                            </td>
+
+                            <td class="fw-semibold">{{ l.vencimento | data_br }}</td>
+                            <td>
+                                <strong>{{ l.descricao }}</strong>
+                                {% if l.recorrente == 1 %}<i class="bi bi-arrow-repeat text-primary ms-1" title="Receita Recorrente"></i>{% endif %}
+                            </td>
+                            <td>
+                                <span class="badge {% if l.esfera == 'Empresa' %}badge-empresa{% else %}badge-casa{% endif %}">
+                                    {{ l.esfera }}
+                                </span>
+                            </td>
+                            <td>{{ l.categoria_nome or '-' }}</td>
+                            <td class="fw-bold text-success">{{ l.valor | moeda_br }}</td>
+                            <td><span class="small text-muted">{{ l.forma_pagamento or '-' }}</span></td>
+                            <td>
+                                {% if l.id == 'atraso_consolidado' or (l.observacoes and 'ID Ref:' in l.observacoes) %}
+                                    <span class="badge bg-secondary"><i class="bi bi-lock-fill me-1"></i> Sincronizado (Somente Leitura)</span>
+                                {% else %}
+
+                                    <div class="d-flex align-items-center">
+                                        <form method="POST" action="{{ url_for('toggle_status_receber', id_lancamento=l.id) }}" class="me-1">
+                                            {% if l.status == 'Pago' or l.status == 'Recebido' %}
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Marcar A Receber"><i class="bi bi-arrow-counterclockwise"></i> Desfazer</button>
+                                            {% else %}
+                                                <button type="submit" class="btn btn-sm btn-success fw-bold"><i class="bi bi-check-lg me-1"></i> Receber</button>
+                                            {% endif %}
+                                        </form>
+
+                                        <!-- Botão Editar -->
+                                        <button type="button" class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal" data-bs-target="#modalEditarReceita{{ l.id }}" title="Editar Receita">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+
+                                        <!-- Botão Excluir -->
+                                        <form method="POST" action="{{ url_for('excluir_receber', id_lancamento=l.id) }}" onsubmit="return confirm('Excluir esta receita?')">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir"><i class="bi bi-trash"></i></button>
+                                        </form>
+                                    </div>
+
+                                    <!-- Modal Editar Receita -->
+                                    <div class="modal fade" id="modalEditarReceita{{ l.id }}" tabindex="-1">
+                                        <div class="modal-dialog">
+                                            <div class="modal-content text-start">
+                                                <div class="modal-header bg-primary text-white">
+                                                    <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i> Editar Receita</h5>
+                                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                                </div>
+                                                <form method="POST" action="{{ url_for('editar_receber', id_lancamento=l.id) }}">
+                                                    <div class="modal-body">
+                                                        <div class="mb-3">
+                                                            <label class="form-label font-weight-bold">Descrição</label>
+                                                            <input type="text" name="descricao" class="form-control" value="{{ l.descricao }}" required>
+                                                        </div>
+
+                                                        <div class="row">
+                                                            <div class="col-md-6 mb-3">
+                                                                <label class="form-label font-weight-bold">Esfera (Contexto)</label>
+                                                                <select name="esfera" class="form-select" required>
+                                                                    <option value="Empresa" {% if l.esfera == 'Empresa' %}selected{% endif %}>🏥 Empresa (Consultório)</option>
+                                                                    <option value="Casa" {% if l.esfera == 'Casa' %}selected{% endif %}>🏠 Casa (Pessoal)</option>
+                                                                </select>
+                                                            </div>
+                                                            <div class="col-md-6 mb-3">
+                                                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                                                    <label class="form-label mb-0 font-weight-bold">Categoria</label>
+                                                                    <a href="{{ url_for('listar_categorias_view') }}" target="_blank" class="small text-decoration-none">+ Gerenciar</a>
+                                                                </div>
+                                                                <select name="categoria_id" class="form-select">
+                                                                    <option value="">(Sem categoria)</option>
+                                                                    {% for c in categorias %}
+                                                                        <option value="{{ c.id }}" {% if l.categoria_id == c.id %}selected{% endif %}>{{ c.nome }}</option>
+                                                                    {% endfor %}
+                                                                </select>
+                                                            </div>
+                                                        </div>
+
+                                                        <div class="row">
+                                                            <div class="col-md-6 mb-3">
+                                                                <label class="form-label font-weight-bold">Valor (R$)</label>
+                                                                <input type="number" step="0.01" name="valor" class="form-control" value="{{ l.valor }}" required>
+                                                            </div>
+                                                            <div class="col-md-6 mb-3">
+                                                                <label class="form-label font-weight-bold">Data Prevista/Recebimento</label>
+                                                                <input type="date" name="vencimento" class="form-control" value="{{ l.vencimento }}" required>
+                                                            </div>
+                                                        </div>
+
+                                                        <div class="row">
+                                                            <div class="col-md-6 mb-3">
+                                                                <label class="form-label font-weight-bold">Forma de Recebimento</label>
+                                                                <select name="forma_pagamento" class="form-select">
+                                                                    <option value="Pix" {% if l.forma_pagamento == 'Pix' %}selected{% endif %}>Pix</option>
+                                                                    <option value="Cartão de Crédito" {% if l.forma_pagamento == 'Cartão de Crédito' %}selected{% endif %}>Cartão de Crédito</option>
+                                                                    <option value="Débito" {% if l.forma_pagamento == 'Débito' %}selected{% endif %}>Débito</option>
+                                                                    <option value="Dinheiro" {% if l.forma_pagamento == 'Dinheiro' %}selected{% endif %}>Dinheiro</option>
+                                                                    <option value="Transferência" {% if l.forma_pagamento == 'Transferência' %}selected{% endif %}>Transferência</option>
+                                                                    <option value="Boleto" {% if l.forma_pagamento == 'Boleto' %}selected{% endif %}>Boleto</option>
+                                                                </select>
+                                                            </div>
+                                                            <div class="col-md-6 mb-3">
+                                                                <label class="form-label font-weight-bold">Status</label>
+                                                                <select name="status" class="form-select">
+                                                                    <option value="Pendente" {% if l.status == 'Pendente' %}selected{% endif %}>A Receber (Pendente)</option>
+                                                                    <option value="Pago" {% if l.status == 'Pago' or l.status == 'Recebido' %}selected{% endif %}>Recebido Já Confirmado</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+
+                                                        <div class="mb-3">
+                                                            <label class="form-label font-weight-bold">Observações (opcional)</label>
+                                                            <textarea name="observacoes" class="form-control" rows="2">{{ l.observacoes or '' }}</textarea>
+                                                        </div>
+                                                    </div>
+                                                    <div class="modal-footer">
+                                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                        <button type="submit" class="btn btn-success fw-bold">Salvar Alterações</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Modal Nova Receita -->
+<div class="modal fade" id="modalNovaReceita" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-plus-circle me-2"></i> Nova Receita / Entrada</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('novo_receber') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Descrição</label>
+                        <input type="text" name="descricao" class="form-control" placeholder="ex: Pacote de Consultas, Venda de Óleos, Cursos" required>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label font-weight-bold">Esfera (Contexto)</label>
+                            <select name="esfera" class="form-select" required>
+                                <option value="Empresa" {% if esfera_filtro == 'Empresa' %}selected{% endif %}>🏥 Empresa (Consultório)</option>
+                                <option value="Casa" {% if esfera_filtro == 'Casa' %}selected{% endif %}>🏠 Casa (Pessoal)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label mb-0 font-weight-bold">Categoria</label>
+                                <a href="{{ url_for('listar_categorias_view') }}" target="_blank" class="small text-decoration-none">+ Gerenciar</a>
+                            </div>
+                            <select name="categoria_id" class="form-select">
+                                <option value="">(Sem categoria)</option>
+                                {% for c in categorias %}
+                                    <option value="{{ c.id }}">{{ c.nome }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label font-weight-bold">Valor (R$)</label>
+                            <input type="number" step="0.01" name="valor" class="form-control" placeholder="0.00" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label font-weight-bold">Data Prevista/Recebimento</label>
+                            <input type="date" name="vencimento" class="form-control" required>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label font-weight-bold">Forma de Recebimento</label>
+                            <select name="forma_pagamento" class="form-select">
+                                <option value="Pix">Pix</option>
+                                <option value="Cartão de Crédito">Cartão de Crédito</option>
+                                <option value="Débito">Débito</option>
+                                <option value="Dinheiro">Dinheiro</option>
+                                <option value="Transferência">Transferência</option>
+                                <option value="Boleto">Boleto</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label font-weight-bold">Status Inicial</label>
+                            <select name="status" class="form-select">
+                                <option value="Pendente">A Receber (Pendente)</option>
+                                <option value="Pago">Recebido Já Confirmado</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Observações (opcional)</label>
+                        <textarea name="observacoes" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success fw-bold">Salvar Receita</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

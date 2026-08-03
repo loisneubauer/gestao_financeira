@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+
+{% block titulo %}Contas a Pagar — Gestão Financeira{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap">
+    <div>
+        <h3 class="mb-1 fw-bold text-danger"><i class="bi bi-arrow-down-circle me-2"></i> Contas a Pagar ({{ esfera_filtro }})</h3>
+        <p class="text-muted small mb-0">Controle de despesas e vencimentos</p>
+    </div>
+
+    <div class="d-flex align-items-center mt-2 mt-md-0">
+        <form method="GET" class="me-2">
+            <input type="month" name="mes" value="{{ mes_ano }}" class="form-select form-select-sm" onchange="this.form.submit()">
+        </form>
+        <button type="button" class="btn btn-danger btn-sm fw-bold" data-bs-toggle="modal" data-bs-target="#modalNovaConta">
+            <i class="bi bi-plus-lg me-1"></i> Nova Conta a Pagar
+        </button>
+    </div>
+</div>
+
+<!-- Tabela de Contas a Pagar -->
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-body p-0">
+        {% if lancamentos|length == 0 %}
+            <div class="p-4 text-center text-muted">Nenhuma conta a pagar encontrada para este mês.</div>
+        {% else %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Status</th>
+                            <th>Vencimento</th>
+                            <th>Descrição</th>
+                            <th>Esfera</th>
+                            <th>Categoria</th>
+                            <th>Valor</th>
+                            <th>Forma</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for l in lancamentos %}
+                        <tr class="{% if l.status == 'Pago' %}table-success opacity-75{% endif %}">
+                            <td>
+                                {% if l.status == 'Pago' %}
+                                    <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i> Pago</span>
+                                {% else %}
+                                    <span class="badge bg-warning text-dark"><i class="bi bi-clock me-1"></i> Pendente</span>
+                                {% endif %}
+                            </td>
+                            <td class="fw-semibold">{{ l.vencimento | data_br }}</td>
+                            <td>
+                                <strong>{{ l.descricao }}</strong>
+                                {% if l.recorrente == 1 %}<i class="bi bi-arrow-repeat text-primary ms-1" title="Despesa Recorrente"></i>{% endif %}
+                            </td>
+                            <td>
+                                <span class="badge {% if l.esfera == 'Empresa' %}badge-empresa{% else %}badge-casa{% endif %}">
+                                    {{ l.esfera }}
+                                </span>
+                            </td>
+                            <td>{{ l.categoria_nome or '-' }}</td>
+                            <td class="fw-bold text-danger">{{ l.valor | moeda_br }}</td>
+                            <td><span class="small text-muted">{{ l.forma_pagamento or '-' }}</span></td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <form method="POST" action="{{ url_for('toggle_status_pagar', id_lancamento=l.id) }}" class="me-1">
+                                        {% if l.status == 'Pago' %}
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary" title="Marcar como Pendente"><i class="bi bi-arrow-counterclockwise"></i> Desfazer</button>
+                                        {% else %}
+                                            <button type="submit" class="btn btn-sm btn-success fw-bold"><i class="bi bi-check-lg me-1"></i> Pagar</button>
+                                        {% endif %}
+                                    </form>
+
+                                    <!-- Botão Editar -->
+                                    <button type="button" class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal" data-bs-target="#modalEditarConta{{ l.id }}" title="Editar Conta">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+
+                                    <!-- Botão Excluir -->
+                                    <form method="POST" action="{{ url_for('excluir_pagar', id_lancamento=l.id) }}" onsubmit="return confirm('Excluir esta conta?')">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir"><i class="bi bi-trash"></i></button>
+                                    </form>
+                                </div>
+
+                                <!-- Modal Editar Conta a Pagar -->
+                                <div class="modal fade" id="modalEditarConta{{ l.id }}" tabindex="-1">
+                                    <div class="modal-dialog">
+                                        <div class="modal-content text-start">
+                                            <div class="modal-header bg-primary text-white">
+                                                <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i> Editar Conta a Pagar</h5>
+                                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <form method="POST" action="{{ url_for('editar_pagar', id_lancamento=l.id) }}">
+                                                <div class="modal-body">
+                                                    <div class="mb-3">
+                                                        <label class="form-label font-weight-bold">Descrição</label>
+                                                        <input type="text" name="descricao" class="form-control" value="{{ l.descricao }}" required>
+                                                    </div>
+
+                                                    <div class="row">
+                                                        <div class="col-md-6 mb-3">
+                                                            <label class="form-label font-weight-bold">Esfera (Contexto)</label>
+                                                            <select name="esfera" class="form-select" required>
+                                                                <option value="Empresa" {% if l.esfera == 'Empresa' %}selected{% endif %}>🏥 Empresa (Consultório)</option>
+                                                                <option value="Casa" {% if l.esfera == 'Casa' %}selected{% endif %}>🏠 Casa (Pessoal)</option>
+                                                            </select>
+                                                        </div>
+                                                        <div class="col-md-6 mb-3">
+                                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                                <label class="form-label mb-0 font-weight-bold">Categoria</label>
+                                                                <a href="{{ url_for('listar_categorias_view') }}" target="_blank" class="small text-decoration-none">+ Gerenciar</a>
+                                                            </div>
+                                                            <select name="categoria_id" class="form-select">
+                                                                <option value="">(Sem categoria)</option>
+                                                                {% for c in categorias %}
+                                                                    <option value="{{ c.id }}" {% if l.categoria_id == c.id %}selected{% endif %}>{{ c.nome }}</option>
+                                                                {% endfor %}
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="row">
+                                                        <div class="col-md-6 mb-3">
+                                                            <label class="form-label font-weight-bold">Valor (R$)</label>
+                                                            <input type="number" step="0.01" name="valor" class="form-control" value="{{ l.valor }}" required>
+                                                        </div>
+                                                        <div class="col-md-6 mb-3">
+                                                            <label class="form-label font-weight-bold">Data de Vencimento</label>
+                                                            <input type="date" name="vencimento" class="form-control" value="{{ l.vencimento }}" required>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="row">
+                                                        <div class="col-md-6 mb-3">
+                                                            <label class="form-label font-weight-bold">Forma de Pagamento</label>
+                                                            <select name="forma_pagamento" class="form-select">
+                                                                <option value="Pix" {% if l.forma_pagamento == 'Pix' %}selected{% endif %}>Pix</option>
+                                                                <option value="Boleto" {% if l.forma_pagamento == 'Boleto' %}selected{% endif %}>Boleto</option>
+                                                                <option value="Cartão de Crédito" {% if l.forma_pagamento == 'Cartão de Crédito' %}selected{% endif %}>Cartão de Crédito</option>
+                                                                <option value="Débito" {% if l.forma_pagamento == 'Débito' %}selected{% endif %}>Débito</option>
+                                                                <option value="Dinheiro" {% if l.forma_pagamento == 'Dinheiro' %}selected{% endif %}>Dinheiro</option>
+                                                                <option value="Transferência" {% if l.forma_pagamento == 'Transferência' %}selected{% endif %}>Transferência</option>
+                                                            </select>
+                                                        </div>
+                                                        <div class="col-md-6 mb-3">
+                                                            <label class="form-label font-weight-bold">Status</label>
+                                                            <select name="status" class="form-select">
+                                                                <option value="Pendente" {% if l.status == 'Pendente' %}selected{% endif %}>Pendente (A Vencer)</option>
+                                                                <option value="Pago" {% if l.status == 'Pago' %}selected{% endif %}>Pago Já Efetuado</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="form-check mb-3">
+                                                        <input class="form-check-input" type="checkbox" name="recorrente" id="editRecorrente{{ l.id }}" value="1" {% if l.recorrente == 1 %}checked{% endif %}>
+                                                        <label class="form-check-label" for="editRecorrente{{ l.id }}">
+                                                            Despesa Recorrente (Repete todos os meses)
+                                                        </label>
+                                                    </div>
+
+                                                    <div class="mb-3">
+                                                        <label class="form-label font-weight-bold">Observações (opcional)</label>
+                                                        <textarea name="observacoes" class="form-control" rows="2">{{ l.observacoes or '' }}</textarea>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                    <button type="submit" class="btn btn-primary fw-bold">Salvar Alterações</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Modal Nova Conta a Pagar -->
+<div class="modal fade" id="modalNovaConta" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-plus-circle me-2"></i> Nova Conta a Pagar</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('novo_pagar') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Descrição</label>
+                        <input type="text" name="descricao" class="form-control" placeholder="ex: Aluguel do Consultório, Luz, Internet" required>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label font-weight-bold">Esfera (Contexto)</label>
+                            <select name="esfera" class="form-select" required>
+                                <option value="Empresa" {% if esfera_filtro == 'Empresa' %}selected{% endif %}>🏥 Empresa (Consultório)</option>
+                                <option value="Casa" {% if esfera_filtro == 'Casa' %}selected{% endif %}>🏠 Casa (Pessoal)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label mb-0 font-weight-bold">Categoria</label>
+                                <a href="{{ url_for('listar_categorias_view') }}" target="_blank" class="small text-decoration-none">+ Gerenciar</a>
+                            </div>
+                            <select name="categoria_id" class="form-select">
+                                <option value="">(Sem categoria)</option>
+                                {% for c in categorias %}
+                                    <option value="{{ c.id }}">{{ c.nome }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label font-weight-bold">Valor (R$)</label>
+                            <input type="number" step="0.01" name="valor" class="form-control" placeholder="0.00" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label font-weight-bold">Data de Vencimento</label>
+                            <input type="date" name="vencimento" class="form-control" required>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label font-weight-bold">Forma de Pagamento</label>
+                            <select name="forma_pagamento" class="form-select">
+                                <option value="Pix">Pix</option>
+                                <option value="Boleto">Boleto</option>
+                                <option value="Cartão de Crédito">Cartão de Crédito</option>
+                                <option value="Débito">Débito</option>
+                                <option value="Dinheiro">Dinheiro</option>
+                                <option value="Transferência">Transferência</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label font-weight-bold">Status Inicial</label>
+                            <select name="status" class="form-select">
+                                <option value="Pendente">Pendente (A Vencer)</option>
+                                <option value="Pago">Pago Já Efetuado</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="recorrente" id="checkRecorrente" value="1">
+                        <label class="form-check-label" for="checkRecorrente">
+                            Despesa Recorrente (Repete todos os meses)
+                        </label>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Observações (opcional)</label>
+                        <textarea name="observacoes" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger fw-bold">Salvar Conta a Pagar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
