@@ -267,8 +267,13 @@ def listar_pagar():
 
 
 @app.route("/pagar/novo", methods=["POST"])
+@app.route("/pagar/novo", methods=["POST"])
 @login_required
 def novo_pagar():
+    freq = request.form.get("frequencia_recorrencia")
+    if not freq:
+        freq = "Mensal" if request.form.get("recorrente") else "Nenhuma"
+
     dados = {
         "descricao": request.form.get("descricao", "").strip(),
         "tipo": "Pagar",
@@ -278,13 +283,33 @@ def novo_pagar():
         "vencimento": request.form.get("vencimento", date.today().isoformat()),
         "status": request.form.get("status", "Pendente"),
         "forma_pagamento": request.form.get("forma_pagamento", "Pix"),
-        "recorrente": 1 if request.form.get("recorrente") else 0,
+        "recorrente": 1 if freq != "Nenhuma" else 0,
+        "frequencia_recorrencia": freq,
         "observacoes": request.form.get("observacoes", "")
     }
     if dados["status"] == "Pago":
         dados["data_pagamento"] = request.form.get("data_pagamento") or date.today().isoformat()
 
-    database.inserir_lancamento(dados)
+    id_novo = database.inserir_lancamento(dados)
+
+    # Se for Semanal ou Quinzenal, projeta automaticamente as ocorrências restantes dentro do próprio mês
+    if freq in ["Semanal", "Quinzenal"] and dados["vencimento"]:
+        try:
+            dt_venc = date.fromisoformat(dados["vencimento"])
+            mes_atual = dt_venc.strftime("%Y-%m")
+            delta_dias = 7 if freq == "Semanal" else 14
+            proxima_dt = dt_venc + timedelta(days=delta_dias)
+
+            while proxima_dt.strftime("%Y-%m") == mes_atual:
+                dados_prox = dict(dados)
+                dados_prox["vencimento"] = proxima_dt.isoformat()
+                dados_prox["status"] = "Pendente"
+                dados_prox["data_pagamento"] = None
+                database.inserir_lancamento(dados_prox)
+                proxima_dt += timedelta(days=delta_dias)
+        except Exception as e:
+            print(f"Aviso ao gerar parcelas do mês: {e}")
+
     return redirect(url_for("listar_pagar"))
 
 
@@ -302,6 +327,10 @@ def toggle_status_pagar(id_lancamento):
 @app.route("/pagar/<int:id_lancamento>/editar", methods=["POST"])
 @login_required
 def editar_pagar(id_lancamento):
+    freq = request.form.get("frequencia_recorrencia")
+    if not freq:
+        freq = "Mensal" if request.form.get("recorrente") else "Nenhuma"
+
     dados = {
         "descricao": request.form.get("descricao", "").strip(),
         "tipo": "Pagar",
@@ -311,7 +340,8 @@ def editar_pagar(id_lancamento):
         "vencimento": request.form.get("vencimento", date.today().isoformat()),
         "status": request.form.get("status", "Pendente"),
         "forma_pagamento": request.form.get("forma_pagamento", "Pix"),
-        "recorrente": 1 if request.form.get("recorrente") else 0,
+        "recorrente": 1 if freq != "Nenhuma" else 0,
+        "frequencia_recorrencia": freq,
         "observacoes": request.form.get("observacoes", "")
     }
     if dados["status"] == "Pago":
@@ -321,6 +351,7 @@ def editar_pagar(id_lancamento):
 
     database.atualizar_lancamento(id_lancamento, dados)
     return redirect(url_for("listar_pagar"))
+
 
 
 @app.route("/pagar/<int:id_lancamento>/excluir", methods=["POST"])
@@ -414,6 +445,10 @@ def listar_receber():
 @app.route("/receber/novo", methods=["POST"])
 @login_required
 def novo_receber():
+    freq = request.form.get("frequencia_recorrencia")
+    if not freq:
+        freq = "Mensal" if request.form.get("recorrente") else "Nenhuma"
+
     dados = {
         "descricao": request.form.get("descricao", "").strip(),
         "tipo": "Receber",
@@ -423,13 +458,32 @@ def novo_receber():
         "vencimento": request.form.get("vencimento", date.today().isoformat()),
         "status": request.form.get("status", "Pendente"),
         "forma_pagamento": request.form.get("forma_pagamento", "Pix"),
-        "recorrente": 1 if request.form.get("recorrente") else 0,
+        "recorrente": 1 if freq != "Nenhuma" else 0,
+        "frequencia_recorrencia": freq,
         "observacoes": request.form.get("observacoes", "")
     }
     if dados["status"] == "Pago":
         dados["data_pagamento"] = request.form.get("data_pagamento") or date.today().isoformat()
 
-    database.inserir_lancamento(dados)
+    id_novo = database.inserir_lancamento(dados)
+
+    if freq in ["Semanal", "Quinzenal"] and dados["vencimento"]:
+        try:
+            dt_venc = date.fromisoformat(dados["vencimento"])
+            mes_atual = dt_venc.strftime("%Y-%m")
+            delta_dias = 7 if freq == "Semanal" else 14
+            proxima_dt = dt_venc + timedelta(days=delta_dias)
+
+            while proxima_dt.strftime("%Y-%m") == mes_atual:
+                dados_prox = dict(dados)
+                dados_prox["vencimento"] = proxima_dt.isoformat()
+                dados_prox["status"] = "Pendente"
+                dados_prox["data_pagamento"] = None
+                database.inserir_lancamento(dados_prox)
+                proxima_dt += timedelta(days=delta_dias)
+        except Exception as e:
+            print(f"Aviso ao gerar parcelas do mês: {e}")
+
     return redirect(url_for("listar_receber"))
 
 
@@ -453,6 +507,10 @@ def editar_receber(id_lancamento):
     if lancamento and lancamento["observacoes"] and "ID Ref:" in lancamento["observacoes"]:
         return redirect(url_for("listar_receber", erro="Lançamentos sincronizados da clínica são somente leitura e não podem ser editados."))
 
+    freq = request.form.get("frequencia_recorrencia")
+    if not freq:
+        freq = "Mensal" if request.form.get("recorrente") else "Nenhuma"
+
     dados = {
         "descricao": request.form.get("descricao", "").strip(),
         "tipo": "Receber",
@@ -462,7 +520,8 @@ def editar_receber(id_lancamento):
         "vencimento": request.form.get("vencimento", date.today().isoformat()),
         "status": request.form.get("status", "Pendente"),
         "forma_pagamento": request.form.get("forma_pagamento", "Pix"),
-        "recorrente": 1 if request.form.get("recorrente") else 0,
+        "recorrente": 1 if freq != "Nenhuma" else 0,
+        "frequencia_recorrencia": freq,
         "observacoes": request.form.get("observacoes", "")
     }
     if dados["status"] in ["Pago", "Recebido"]:
@@ -472,6 +531,7 @@ def editar_receber(id_lancamento):
 
     database.atualizar_lancamento(id_lancamento, dados)
     return redirect(url_for("listar_receber"))
+
 
 
 @app.route("/receber/<int:id_lancamento>/excluir", methods=["POST"])

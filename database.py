@@ -57,8 +57,14 @@ def criar_tabelas():
         )
     """)
 
+    colunas = [row[1] for row in conexao.execute("PRAGMA table_info(lancamentos)").fetchall()]
+    if "frequencia_recorrencia" not in colunas:
+        conexao.execute("ALTER TABLE lancamentos ADD COLUMN frequencia_recorrencia TEXT DEFAULT 'Nenhuma'")
+        conexao.execute("UPDATE lancamentos SET frequencia_recorrencia = 'Mensal' WHERE recorrente = 1")
+
     conexao.commit()
     conexao.close()
+
 
 
 # ===== CATEGORIAS =====
@@ -155,16 +161,19 @@ def buscar_lancamento(id_lancamento):
 
 def inserir_lancamento(dados):
     conexao = conectar()
+    freq = dados.get("frequencia_recorrencia") or ("Mensal" if dados.get("recorrente") == 1 else "Nenhuma")
+    recorrente_val = 1 if freq != "Nenhuma" else 0
+
     cursor = conexao.execute("""
         INSERT INTO lancamentos (
             descricao, tipo, esfera, categoria_id, valor, vencimento,
-            data_pagamento, status, forma_pagamento, recorrente, observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            data_pagamento, status, forma_pagamento, recorrente, frequencia_recorrencia, observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         dados["descricao"], dados["tipo"], dados["esfera"], dados.get("categoria_id"),
         dados["valor"], dados["vencimento"], dados.get("data_pagamento"),
         dados.get("status", "Pendente"), dados.get("forma_pagamento"),
-        dados.get("recorrente", 0), dados.get("observacoes")
+        recorrente_val, freq, dados.get("observacoes")
     ))
     conexao.commit()
     id_novo = cursor.lastrowid
@@ -174,20 +183,24 @@ def inserir_lancamento(dados):
 
 def atualizar_lancamento(id_lancamento, dados):
     conexao = conectar()
+    freq = dados.get("frequencia_recorrencia") or ("Mensal" if dados.get("recorrente") == 1 else "Nenhuma")
+    recorrente_val = 1 if freq != "Nenhuma" else 0
+
     conexao.execute("""
         UPDATE lancamentos SET
             descricao = ?, tipo = ?, esfera = ?, categoria_id = ?, valor = ?,
             vencimento = ?, data_pagamento = ?, status = ?, forma_pagamento = ?,
-            recorrente = ?, observacoes = ?
+            recorrente = ?, frequencia_recorrencia = ?, observacoes = ?
         WHERE id = ?
     """, (
         dados["descricao"], dados["tipo"], dados["esfera"], dados.get("categoria_id"),
         dados["valor"], dados["vencimento"], dados.get("data_pagamento"),
         dados.get("status", "Pendente"), dados.get("forma_pagamento"),
-        dados.get("recorrente", 0), dados.get("observacoes"), id_lancamento
+        recorrente_val, freq, dados.get("observacoes"), id_lancamento
     ))
     conexao.commit()
     conexao.close()
+
 
 
 def alternar_status_lancamento(id_lancamento, novo_status, data_pagto=None):
