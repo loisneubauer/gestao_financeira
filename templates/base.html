@@ -2,6 +2,7 @@
 <html lang="pt-br">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>{% block titulo %}Gestão Financeira — Empresa & Casa{% endblock %}</title>
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -10,6 +11,9 @@
     <style>
         .navbar-lavanda {
             background-color: #E4D9F2;
+        }
+        .bg-lavanda {
+            background-color: #6B4E8E;
         }
         .btn-outline-lavanda {
             color: #6B4E8E;
@@ -38,6 +42,48 @@
         }
         .card-resumo:hover {
             transform: translateY(-2px);
+        }
+
+        /* ===== Ajustes de usabilidade mobile ===== */
+
+        /* Botões de ação (Editar/Excluir/Pagar) em tabelas: área de toque maior e mais espaçada */
+        @media (max-width: 767.98px) {
+            .table td .btn-sm {
+                min-width: 44px;
+                min-height: 44px;
+                padding: 0.5rem;
+            }
+            .table td .d-flex.align-items-center {
+                gap: 0.5rem;
+            }
+        }
+
+        /* Itens de navegação no menu mobile colapsado: mais altura e legibilidade */
+        @media (max-width: 991.98px) {
+            #navMain .navbar-nav .btn {
+                display: block;
+                width: 100%;
+                text-align: left;
+                padding: 0.65rem 1rem;
+                margin-bottom: 0.35rem;
+            }
+
+            #navMain .btn-group[aria-label="Filtro de Contexto"] {
+                display: flex;
+                flex-wrap: wrap;
+                width: 100%;
+                margin: 0.5rem 0 0.75rem;
+            }
+            #navMain .btn-group[aria-label="Filtro de Contexto"] .btn {
+                flex: 1 1 33%;
+                padding: 0.6rem 0.25rem;
+            }
+        }
+
+        /* Textos longos (tokens de API etc.) não devem estourar a largura da tela */
+        .text-break-token {
+            overflow-wrap: break-word;
+            word-break: break-word;
         }
     </style>
     {% block estilos_extra %}{% endblock %}

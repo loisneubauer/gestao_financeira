@@ -57,13 +57,13 @@
                                     <td>
                                         <div class="d-flex align-items-center">
                                             <!-- Botão Editar Categoria -->
-                                            <button type="button" class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal" data-bs-target="#modalEditarCategoria{{ c.id }}" title="Editar Categoria">
+                                            <button type="button" class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal" data-bs-target="#modalEditarCategoria{{ c.id }}" title="Editar Categoria" aria-label="Editar Categoria">
                                                 <i class="bi bi-pencil"></i>
                                             </button>
 
                                             <!-- Botão Excluir Categoria -->
                                             <form method="POST" action="{{ url_for('excluir_categoria_view', id_categoria=c.id) }}" onsubmit="return confirm('Excluir esta categoria?')">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir"><i class="bi bi-trash"></i></button>
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir" aria-label="Excluir Categoria"><i class="bi bi-trash"></i></button>
                                             </form>
                                         </div>
 

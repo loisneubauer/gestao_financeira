@@ -11,7 +11,7 @@
 
     <div class="d-flex align-items-center mt-2 mt-md-0">
         <form method="GET" class="me-2">
-            <input type="month" name="mes" value="{{ mes_ano }}" class="form-select form-select-sm" onchange="this.form.submit()">
+            <input type="month" name="mes" value="{{ mes_ano }}" class="form-control form-control-sm" onchange="this.form.submit()">
         </form>
         <button type="button" class="btn btn-success btn-sm fw-bold" data-bs-toggle="modal" data-bs-target="#modalNovaReceita">
             <i class="bi bi-plus-lg me-1"></i> Nova Receita
@@ -110,13 +110,13 @@
                                         </form>
 
                                         <!-- Botão Editar -->
-                                        <button type="button" class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal" data-bs-target="#modalEditarReceita{{ l.id }}" title="Editar Receita">
+                                        <button type="button" class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal" data-bs-target="#modalEditarReceita{{ l.id }}" title="Editar Receita" aria-label="Editar Receita">
                                             <i class="bi bi-pencil"></i>
                                         </button>
 
                                         <!-- Botão Excluir -->
                                         <form method="POST" action="{{ url_for('excluir_receber', id_lancamento=l.id) }}" onsubmit="return confirm('Excluir esta receita?')">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir"><i class="bi bi-trash"></i></button>
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir" aria-label="Excluir Receita"><i class="bi bi-trash"></i></button>
                                         </form>
                                     </div>
                                 {% endif %}
@@ -134,7 +134,7 @@
 {% for l in lancamentos %}
     {% if l.id != 'atraso_consolidado' and not (l.observacoes and 'ID Ref:' in l.observacoes) %}
     <div class="modal fade" id="modalEditarReceita{{ l.id }}" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-scrollable">
             <div class="modal-content text-start">
                 <div class="modal-header bg-primary text-white">
                     <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i> Editar Receita</h5>
@@ -216,7 +216,7 @@
                             <textarea name="observacoes" class="form-control" rows="2">{{ l.observacoes or '' }}</textarea>
                         </div>
                     </div>
-                    <div class="modal-footer">
+                    <div class="modal-footer sticky-bottom bg-white">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                         <button type="submit" class="btn btn-success fw-bold">Salvar Alterações</button>
                     </div>
@@ -229,7 +229,7 @@
 
 <!-- Modal Nova Receita -->
 <div class="modal fade" id="modalNovaReceita" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title fw-bold"><i class="bi bi-plus-circle me-2"></i> Nova Receita / Entrada</h5>
@@ -311,7 +311,7 @@
                         <textarea name="observacoes" class="form-control" rows="2"></textarea>
                     </div>
                 </div>
-                <div class="modal-footer">
+                <div class="modal-footer sticky-bottom bg-white">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
                     <button type="submit" class="btn btn-success fw-bold">Salvar Receita</button>
                 </div>

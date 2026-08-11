@@ -49,46 +49,48 @@
             <code class="ms-2 small">{{ t.slug }}</code>
             {% if t.ativo %}<span class="badge bg-success ms-2">Ativo</span>{% else %}<span class="badge bg-secondary ms-2">Inativo</span>{% endif %}
         </div>
-        <div class="d-flex gap-1">
-            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modalEditarTenant{{ t.id }}">
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modalEditarTenant{{ t.id }}" aria-label="Editar organização">
                 <i class="bi bi-pencil"></i> Editar
             </button>
             <form method="post" action="{{ url_for('admin_gerar_token_tenant', id_tenant=t.id) }}" class="d-inline">
-                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Gerar novo token de API para o webhook">
+                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Gerar novo token de API para o webhook" aria-label="Gerar novo token de API">
                     <i class="bi bi-arrow-repeat"></i> Token
                 </button>
             </form>
-            <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalExcluirTenant{{ t.id }}">
+            <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#modalExcluirTenant{{ t.id }}" aria-label="Excluir organização">
                 <i class="bi bi-trash"></i> Excluir
             </button>
         </div>
     </div>
     <div class="card-body">
-        <p class="small text-muted mb-2">Token de API (webhook): <code>{{ t.api_token or "—" }}</code> · Criado em {{ t.criado_em }}</p>
+        <p class="small text-muted mb-2 text-break-token">Token de API (webhook): <code class="text-break-token">{{ t.api_token or "—" }}</code> · Criado em {{ t.criado_em }}</p>
 
         <h6 class="mt-3">Usuários</h6>
-        <table class="table table-sm align-middle mb-2">
-            <thead>
-                <tr>
-                    <th>Nome</th>
-                    <th>Email</th>
-                    <th>Admin de plataforma</th>
-                    <th>Precisa trocar senha</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for u in usuarios_por_tenant.get(t.id, []) %}
-                <tr>
-                    <td>{{ u.nome }}</td>
-                    <td>{{ u.email }}</td>
-                    <td>{% if u.is_admin %}<span class="badge bg-warning text-dark">Sim</span>{% else %}<span class="text-muted small">Não</span>{% endif %}</td>
-                    <td>{% if u.deve_trocar_senha %}<span class="badge bg-info text-dark">Sim</span>{% else %}<span class="text-muted small">Não</span>{% endif %}</td>
-                </tr>
-                {% else %}
-                <tr><td colspan="4" class="text-center text-muted py-2">Nenhum usuário cadastrado.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-2">
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Email</th>
+                        <th>Admin de plataforma</th>
+                        <th>Precisa trocar senha</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in usuarios_por_tenant.get(t.id, []) %}
+                    <tr>
+                        <td>{{ u.nome }}</td>
+                        <td class="text-break-token">{{ u.email }}</td>
+                        <td>{% if u.is_admin %}<span class="badge bg-warning text-dark">Sim</span>{% else %}<span class="text-muted small">Não</span>{% endif %}</td>
+                        <td>{% if u.deve_trocar_senha %}<span class="badge bg-info text-dark">Sim</span>{% else %}<span class="text-muted small">Não</span>{% endif %}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-center text-muted py-2">Nenhum usuário cadastrado.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
 
         <form method="post" action="{{ url_for('admin_novo_usuario_tenant', id_tenant=t.id) }}" class="row g-2 align-items-end">
             <div class="col-md-4">
