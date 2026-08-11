@@ -74,11 +74,16 @@ def verificar_csrf():
             return "Erro de segurança: sessão expirada ou token CSRF inválido. Recarregue a página.", 400
 
 
+ROTAS_PERMITIDAS_COM_TROCA_OBRIGATORIA = {"trocar_senha_obrigatoria", "logout"}
+
+
 def login_required(funcao_da_rota):
     @wraps(funcao_da_rota)
     def rota_protegida(*args, **kwargs):
         if "usuario_id" not in session or "tenant_id" not in session:
             return redirect(url_for("login"))
+        if session.get("deve_trocar_senha") and request.endpoint not in ROTAS_PERMITIDAS_COM_TROCA_OBRIGATORIA:
+            return redirect(url_for("trocar_senha_obrigatoria"))
         return funcao_da_rota(*args, **kwargs)
     return rota_protegida
 
@@ -130,9 +135,13 @@ def login():
             session["usuario_saudacao"] = u_dict.get("saudacao") or ""
             session["usuario_foto"] = u_dict.get("foto_perfil") or ""
             session["usuario_is_admin"] = bool(u_dict.get("is_admin"))
+            session["deve_trocar_senha"] = bool(u_dict.get("deve_trocar_senha"))
             session["tenant_id"] = tenant["id"]
             session["tenant_nome"] = tenant["nome"]
             session["esfera_filtro"] = "Todas"
+
+            if session["deve_trocar_senha"]:
+                return redirect(url_for("trocar_senha_obrigatoria"))
             return redirect(url_for("pagina_inicial"))
 
         return render_template("login.html", erro="Email ou senha incorretos.")
@@ -209,6 +218,37 @@ def alterar_senha():
         return render_template("alterar_senha.html", sucesso="Senha alterada com sucesso!")
 
     return render_template("alterar_senha.html")
+
+
+@app.route("/trocar-senha-obrigatoria", methods=["GET", "POST"])
+@login_required
+def trocar_senha_obrigatoria():
+    if not session.get("deve_trocar_senha"):
+        return redirect(url_for("pagina_inicial"))
+
+    if request.method == "POST":
+        senha_atual = request.form.get("senha_atual", "")
+        nova_senha = request.form.get("nova_senha", "")
+        confirma_senha = request.form.get("confirma_senha", "")
+
+        usuario = database.buscar_usuario_por_id(tenant_atual(), session["usuario_id"])
+        if not usuario or not check_password_hash(usuario["senha_hash"], senha_atual):
+            return render_template("trocar_senha_obrigatoria.html", erro="Senha atual incorreta.")
+
+        if len(nova_senha) < 8:
+            return render_template("trocar_senha_obrigatoria.html", erro="A nova senha deve ter no mínimo 8 caracteres.")
+
+        if nova_senha != confirma_senha:
+            return render_template("trocar_senha_obrigatoria.html", erro="As senhas informadas não coincidem.")
+
+        if nova_senha == senha_atual:
+            return render_template("trocar_senha_obrigatoria.html", erro="A nova senha precisa ser diferente da atual.")
+
+        database.atualizar_senha_usuario(tenant_atual(), session["usuario_id"], generate_password_hash(nova_senha))
+        session["deve_trocar_senha"] = False
+        return redirect(url_for("pagina_inicial", aviso="Senha alterada com sucesso!"))
+
+    return render_template("trocar_senha_obrigatoria.html")
 
 
 @app.route("/esqueci-senha", methods=["GET", "POST"])
@@ -623,7 +663,7 @@ def admin_novo_tenant():
     # deve ter is_admin=1.
     database.criar_usuario(
         tenant_id, admin_nome, admin_email,
-        generate_password_hash(admin_senha), saudacao=None, is_admin=0
+        generate_password_hash(admin_senha), saudacao=None, is_admin=0, deve_trocar_senha=1
     )
 
     tenants = database.listar_tenants()

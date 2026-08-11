@@ -57,12 +57,13 @@ def _migrar_usuarios_para_multi_tenant(conexao, tenant_id_padrao):
             foto_perfil TEXT,
             saudacao TEXT,
             is_admin INTEGER NOT NULL DEFAULT 0,
+            deve_trocar_senha INTEGER NOT NULL DEFAULT 0,
             UNIQUE (tenant_id, email)
         )
     """)
     conexao.execute("""
-        INSERT INTO usuarios (id, tenant_id, nome, email, senha_hash, foto_perfil, saudacao, is_admin)
-        SELECT id, ?, nome, email, senha_hash, foto_perfil, saudacao, 0 FROM usuarios_legado
+        INSERT INTO usuarios (id, tenant_id, nome, email, senha_hash, foto_perfil, saudacao, is_admin, deve_trocar_senha)
+        SELECT id, ?, nome, email, senha_hash, foto_perfil, saudacao, 0, 0 FROM usuarios_legado
     """, (tenant_id_padrao,))
     conexao.execute("DROP TABLE usuarios_legado")
 
@@ -137,6 +138,7 @@ def criar_tabelas():
             foto_perfil TEXT,
             saudacao TEXT,
             is_admin INTEGER NOT NULL DEFAULT 0,
+            deve_trocar_senha INTEGER NOT NULL DEFAULT 0,
             UNIQUE (tenant_id, email)
         )
     """)
@@ -164,6 +166,10 @@ def criar_tabelas():
     # Migração legada: coluna is_admin (caso a tabela usuarios já tivesse tenant_id mas não is_admin)
     if _tabela_existe(conexao, "usuarios") and not _coluna_existe(conexao, "usuarios", "is_admin"):
         conexao.execute("ALTER TABLE usuarios ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+
+    # Migração legada: coluna deve_trocar_senha (força troca de senha no próximo login)
+    if _tabela_existe(conexao, "usuarios") and not _coluna_existe(conexao, "usuarios", "deve_trocar_senha"):
+        conexao.execute("ALTER TABLE usuarios ADD COLUMN deve_trocar_senha INTEGER NOT NULL DEFAULT 0")
 
     conexao.commit()
     conexao.close()
@@ -439,21 +445,35 @@ def buscar_usuario_por_id(tenant_id, id_usuario):
     return usuario
 
 
-def criar_usuario(tenant_id, nome, email, senha_hash, saudacao=None, is_admin=0):
+def criar_usuario(tenant_id, nome, email, senha_hash, saudacao=None, is_admin=0, deve_trocar_senha=0):
     conexao = conectar()
     conexao.execute(
-        "INSERT INTO usuarios (tenant_id, nome, email, senha_hash, saudacao, is_admin) VALUES (?, ?, ?, ?, ?, ?)",
-        (tenant_id, nome, email, senha_hash, saudacao, is_admin)
+        "INSERT INTO usuarios (tenant_id, nome, email, senha_hash, saudacao, is_admin, deve_trocar_senha) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (tenant_id, nome, email, senha_hash, saudacao, is_admin, deve_trocar_senha)
     )
     conexao.commit()
     conexao.close()
 
 
 def atualizar_senha_usuario(tenant_id, id_usuario, nova_senha_hash):
+    """Atualiza a senha e sempre desliga a exigência de troca obrigatória,
+    já que o usuário acabou de definir uma senha nova por conta própria."""
     conexao = conectar()
     conexao.execute(
-        "UPDATE usuarios SET senha_hash = ? WHERE id = ? AND tenant_id = ?",
+        "UPDATE usuarios SET senha_hash = ?, deve_trocar_senha = 0 WHERE id = ? AND tenant_id = ?",
         (nova_senha_hash, id_usuario, tenant_id)
+    )
+    conexao.commit()
+    conexao.close()
+
+
+def marcar_deve_trocar_senha(tenant_id, id_usuario, valor=1):
+    """Liga (valor=1) ou desliga (valor=0) a exigência de troca de senha no
+    próximo login para um usuário específico."""
+    conexao = conectar()
+    conexao.execute(
+        "UPDATE usuarios SET deve_trocar_senha = ? WHERE id = ? AND tenant_id = ?",
+        (1 if valor else 0, id_usuario, tenant_id)
     )
     conexao.commit()
     conexao.close()
