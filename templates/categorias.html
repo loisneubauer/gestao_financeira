@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block titulo %}Categorias — Gestão Financeira{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap">
+    <div>
+        <h3 class="mb-1 fw-bold text-primary"><i class="bi bi-tags me-2"></i> Categorias de Lançamento</h3>
+        <p class="text-muted small mb-0">Organize suas contas por tipo e esfera</p>
+    </div>
+
+    <button type="button" class="btn btn-primary btn-sm fw-bold mt-2 mt-md-0" data-bs-toggle="modal" data-bs-target="#modalNovaCategoria">
+        <i class="bi bi-plus-lg me-1"></i> Nova Categoria
+    </button>
+</div>
+
+<!-- Tabela de Categorias -->
+<div class="row">
+    <div class="col-md-8">
+        <div class="card shadow-sm border-0">
+            <div class="card-body p-0">
+                {% if categorias|length == 0 %}
+                    <div class="p-4 text-center text-muted">Nenhuma categoria cadastrada ainda.</div>
+                {% else %}
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Nome</th>
+                                    <th>Tipo</th>
+                                    <th>Esfera</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for c in categorias %}
+                                <tr>
+                                    <td class="fw-bold">{{ c.nome }}</td>
+                                    <td>
+                                        {% if c.tipo == 'Pagar' %}
+                                            <span class="badge bg-danger">Contas a Pagar</span>
+                                        {% elif c.tipo == 'Receber' %}
+                                            <span class="badge bg-success">Contas a Receber</span>
+                                        {% else %}
+                                            <span class="badge bg-info">Ambos</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if c.esfera == 'Empresa' %}
+                                            <span class="badge badge-empresa">Empresa</span>
+                                        {% elif c.esfera == 'Casa' %}
+                                            <span class="badge badge-casa">Casa</span>
+                                        {% else %}
+                                            <span class="badge badge-todas">Ambos</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <!-- Botão Editar Categoria -->
+                                            <button type="button" class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal" data-bs-target="#modalEditarCategoria{{ c.id }}" title="Editar Categoria">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+
+                                            <!-- Botão Excluir Categoria -->
+                                            <form method="POST" action="{{ url_for('excluir_categoria_view', id_categoria=c.id) }}" onsubmit="return confirm('Excluir esta categoria?')">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir"><i class="bi bi-trash"></i></button>
+                                            </form>
+                                        </div>
+
+                                        <!-- Modal Editar Categoria -->
+                                        <div class="modal fade" id="modalEditarCategoria{{ c.id }}" tabindex="-1">
+                                            <div class="modal-dialog">
+                                                <div class="modal-content text-start">
+                                                    <div class="modal-header bg-primary text-white">
+                                                        <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i> Editar Categoria</h5>
+                                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                                    </div>
+                                                    <form method="POST" action="{{ url_for('editar_categoria_view', id_categoria=c.id) }}">
+                                                        <div class="modal-body">
+                                                            <div class="mb-3">
+                                                                <label class="form-label font-weight-bold">Nome da Categoria</label>
+                                                                <input type="text" name="nome" class="form-control" value="{{ c.nome }}" required>
+                                                            </div>
+
+                                                            <div class="row">
+                                                                <div class="col-md-6 mb-3">
+                                                                    <label class="form-label font-weight-bold">Tipo de Lançamento</label>
+                                                                    <select name="tipo" class="form-select" required>
+                                                                        <option value="Pagar" {% if c.tipo == 'Pagar' %}selected{% endif %}>Contas a Pagar (Despesas)</option>
+                                                                        <option value="Receber" {% if c.tipo == 'Receber' %}selected{% endif %}>Contas a Receber (Receitas)</option>
+                                                                        <option value="Ambos" {% if c.tipo == 'Ambos' %}selected{% endif %}>Ambos</option>
+                                                                    </select>
+                                                                </div>
+
+                                                                <div class="col-md-6 mb-3">
+                                                                    <label class="form-label font-weight-bold">Esfera (Contexto)</label>
+                                                                    <select name="esfera" class="form-select" required>
+                                                                        <option value="Empresa" {% if c.esfera == 'Empresa' %}selected{% endif %}>🏥 Empresa (Consultório)</option>
+                                                                        <option value="Casa" {% if c.esfera == 'Casa' %}selected{% endif %}>🏠 Casa (Pessoal)</option>
+                                                                        <option value="Ambos" {% if c.esfera == 'Ambos' %}selected{% endif %}>🌐 Ambos</option>
+                                                                    </select>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="modal-footer">
+                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                            <button type="submit" class="btn btn-primary fw-bold">Salvar Alterações</button>
+                                                        </div>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Dica lateral sobre Recorrência -->
+    <div class="col-md-4 mt-3 mt-md-0">
+        <div class="card shadow-sm border-0 bg-lavanda">
+            <div class="card-body p-4">
+                <h5 class="fw-bold" style="color: #6B4E8E;"><i class="bi bi-arrow-repeat me-2"></i> Despesas Recorrentes</h5>
+                <p class="small text-muted">
+                    Ao cadastrar uma Conta a Pagar (ex: Aluguel, Luz, Internet, Contador) marcando a opção <strong>"Despesa Recorrente"</strong>, você pode gerar as contas dos meses seguintes com 1 único clique no Dashboard!
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nova Categoria -->
+<div class="modal fade" id="modalNovaCategoria" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-plus-circle me-2"></i> Nova Categoria</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('nova_categoria') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Nome da Categoria</label>
+                        <input type="text" name="nome" class="form-control" placeholder="ex: Aluguel, Insumos, Luz, Consultas" required>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label font-weight-bold">Tipo de Lançamento</label>
+                            <select name="tipo" class="form-select" required>
+                                <option value="Pagar">Contas a Pagar (Despesas)</option>
+                                <option value="Receber">Contas a Receber (Receitas)</option>
+                                <option value="Ambos">Ambos</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label font-weight-bold">Esfera (Contexto)</label>
+                            <select name="esfera" class="form-select" required>
+                                <option value="Empresa">🏥 Empresa (Consultório)</option>
+                                <option value="Casa">🏠 Casa (Pessoal)</option>
+                                <option value="Ambos" selected>🌐 Ambos</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary fw-bold">Salvar Categoria</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

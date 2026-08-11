@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block titulo %}Alterar Senha — Gestão Financeira{% endblock %}
+
+{% block conteudo %}
+<div class="row justify-content-center mt-3">
+    <div class="col-md-6 col-lg-5">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-lavanda text-white text-center py-3">
+                <h5 class="mb-0 fw-bold" style="color: #6B4E8E;"><i class="bi bi-key me-2"></i> Alterar Minha Senha</h5>
+            </div>
+            <div class="card-body p-4">
+                {% if erro %}
+                    <div class="alert alert-danger" role="alert">{{ erro }}</div>
+                {% endif %}
+                {% if sucesso %}
+                    <div class="alert alert-success" role="alert">{{ sucesso }}</div>
+                {% endif %}
+
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Senha Atual</label>
+                        <input type="password" name="senha_atual" class="form-control" placeholder="Digite sua senha atual" required autofocus>
+                    </div>
+
+                    <hr class="my-4">
+
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Nova Senha</label>
+                        <input type="password" name="nova_senha" class="form-control" placeholder="Mínimo de 8 caracteres" required minlength="8">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Confirmar Nova Senha</label>
+                        <input type="password" name="confirma_senha" class="form-control" placeholder="Digite a nova senha novamente" required minlength="8">
+                    </div>
+
+                    <div class="d-grid gap-2 mt-4">
+                        <button type="submit" class="btn btn-primary fw-bold py-2" style="background-color: #6B4E8E; border-color: #6B4E8E;">Atualizar Senha</button>
+                        <a href="{{ url_for('pagina_inicial') }}" class="btn btn-outline-secondary">Cancelar</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block titulo %}Administração de Organizações — Gestão Financeira{% endblock %}
+
+{% block conteudo %}
+<h3 class="mb-4"><i class="bi bi-buildings me-2"></i>Organizações (Tenants)</h3>
+
+{% if erro %}<div class="alert alert-danger">{{ erro }}</div>{% endif %}
+{% if sucesso %}<div class="alert alert-success">{{ sucesso }}</div>{% endif %}
+
+<div class="card mb-4 shadow-sm">
+    <div class="card-header">Nova organização</div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('admin_novo_tenant') }}" class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Nome da organização</label>
+                <input type="text" name="nome" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Slug (identificador único)</label>
+                <input type="text" name="slug" class="form-control" placeholder="ex: acupuntura-bemestar" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Nome do primeiro usuário</label>
+                <input type="text" name="admin_nome" class="form-control" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Email do primeiro usuário</label>
+                <input type="email" name="admin_email" class="form-control" required>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Senha inicial (mín. 8 caracteres)</label>
+                <input type="password" name="admin_senha" class="form-control" minlength="8" required>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-outline-lavanda"><i class="bi bi-plus-circle me-1"></i> Criar organização</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header">Organizações cadastradas</div>
+    <div class="table-responsive">
+        <table class="table table-striped mb-0 align-middle">
+            <thead>
+                <tr>
+                    <th>Nome</th>
+                    <th>Slug</th>
+                    <th>Status</th>
+                    <th>Token de API</th>
+                    <th>Criado em</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in tenants %}
+                <tr>
+                    <td>{{ t.nome }}</td>
+                    <td><code>{{ t.slug }}</code></td>
+                    <td>{% if t.ativo %}<span class="badge bg-success">Ativo</span>{% else %}<span class="badge bg-secondary">Inativo</span>{% endif %}</td>
+                    <td><code class="small">{{ t.api_token or "—" }}</code></td>
+                    <td>{{ t.criado_em }}</td>
+                    <td>
+                        <form method="post" action="{{ url_for('admin_gerar_token_tenant', id_tenant=t.id) }}" class="d-inline">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary" title="Gerar novo token de API para o webhook">
+                                <i class="bi bi-arrow-repeat"></i> Regenerar token
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-center text-muted py-3">Nenhuma organização cadastrada.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

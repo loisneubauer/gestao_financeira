@@ -1,0 +1,16 @@
+# Ambiente virtual
+venv/
+__pycache__/
+*.pyc
+
+# Segredos e dados locais - nunca versionar
+.secret_key
+financeiro.db
+financeiro_backup*.db
+*.db-journal
+
+# Uploads de usuários (não faz parte do código)
+static/uploads/
+
+# Sistema
+.DS_Store
