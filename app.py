@@ -7,10 +7,32 @@ from datetime import datetime, timedelta, date
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 import database
 import calculos
+import emailer
 import os
 import secrets
 import uuid
 import re
+
+
+def _carregar_variaveis_de_ambiente_locais():
+    """Lê um arquivo .env (se existir, ignorado pelo Git) e injeta as chaves
+    em os.environ, sem sobrescrever variáveis já definidas externamente
+    (ex: as configuradas direto no arquivo WSGI do PythonAnywhere)."""
+    caminho_env = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.exists(caminho_env):
+        return
+    with open(caminho_env, encoding="utf-8") as arquivo:
+        for linha in arquivo:
+            linha = linha.strip()
+            if not linha or linha.startswith("#") or "=" not in linha:
+                continue
+            chave, valor = linha.split("=", 1)
+            chave = chave.strip()
+            valor = valor.strip().strip('"').strip("'")
+            os.environ.setdefault(chave, valor)
+
+
+_carregar_variaveis_de_ambiente_locais()
 
 app = Flask(__name__)
 
@@ -625,34 +647,59 @@ def gerar_recorrencias():
 
 # ===== ADMINISTRAÇÃO DE TENANTS (multi-tenancy) =====
 
+def _normalizar_slug(texto):
+    return re.sub(r"[^a-z0-9-]+", "-", texto.strip().lower()).strip("-")
+
+
+def _renderizar_admin_tenants(**kwargs):
+    tenants = database.listar_tenants()
+    usuarios_por_tenant = {t["id"]: database.listar_usuarios_por_tenant(t["id"]) for t in tenants}
+    return render_template("admin_tenants.html", tenants=tenants, usuarios_por_tenant=usuarios_por_tenant, **kwargs)
+
+
+def _criar_usuario_com_convite(tenant_id, nome_organizacao, nome_usuario, email_usuario, is_admin=0):
+    """Cria um usuário com senha temporária + troca obrigatória, e tenta
+    enviar o convite por email. Retorna a mensagem de status pronta pra UI."""
+    senha_temporaria = secrets.token_urlsafe(9)
+    database.criar_usuario(
+        tenant_id, nome_usuario, email_usuario,
+        generate_password_hash(senha_temporaria), saudacao=None, is_admin=is_admin, deve_trocar_senha=1
+    )
+
+    url_login = url_for("login", _external=True)
+    email_enviado, msg_email = emailer.enviar_email_convite(
+        destinatario=email_usuario, nome_usuario=nome_usuario, nome_organizacao=nome_organizacao,
+        email_login=email_usuario, senha_temporaria=senha_temporaria, url_login=url_login
+    )
+
+    if email_enviado:
+        return f"Convite enviado por email para {email_usuario}."
+    return (
+        f"Usuário criado, mas o email não foi enviado ({msg_email}). "
+        f"Senha temporária de {email_usuario}: {senha_temporaria} (repasse manualmente)."
+    )
+
+
 @app.route("/admin/tenants")
 @admin_required
 def admin_listar_tenants():
-    tenants = database.listar_tenants()
-    return render_template("admin_tenants.html", tenants=tenants)
+    return _renderizar_admin_tenants()
 
 
 @app.route("/admin/tenants/novo", methods=["POST"])
 @admin_required
 def admin_novo_tenant():
     nome = request.form.get("nome", "").strip()
-    slug = request.form.get("slug", "").strip().lower()
-    slug = re.sub(r"[^a-z0-9-]+", "-", slug).strip("-")
+    slug = _normalizar_slug(request.form.get("slug", ""))
 
     admin_nome = request.form.get("admin_nome", "").strip()
     admin_email = request.form.get("admin_email", "").strip().lower()
-    admin_senha = request.form.get("admin_senha", "")
 
-    if not nome or not slug or not admin_nome or not admin_email or len(admin_senha) < 8:
-        tenants = database.listar_tenants()
-        return render_template(
-            "admin_tenants.html", tenants=tenants,
-            erro="Preencha nome e slug da organização, além de nome/email/senha (mín. 8 caracteres) do primeiro usuário."
-        )
+    if not nome or not slug or not admin_nome or not admin_email:
+        return _renderizar_admin_tenants(erro="Preencha nome e slug da organização, além de nome e email do primeiro usuário.")
 
     if database.buscar_tenant_por_slug(slug):
-        tenants = database.listar_tenants()
-        return render_template("admin_tenants.html", tenants=tenants, erro="Já existe uma organização com esse slug.")
+        return _renderizar_admin_tenants(erro="Já existe uma organização com esse slug.")
 
     api_token = secrets.token_hex(24)
     tenant_id = database.criar_tenant(nome, slug, api_token)
@@ -661,13 +708,72 @@ def admin_novo_tenant():
     # permissão de dona da plataforma, não de dona da clínica). O usuário
     # inicial de cada organização nova entra como usuário comum; só você
     # deve ter is_admin=1.
-    database.criar_usuario(
-        tenant_id, admin_nome, admin_email,
-        generate_password_hash(admin_senha), saudacao=None, is_admin=0, deve_trocar_senha=1
-    )
+    msg = _criar_usuario_com_convite(tenant_id, nome, admin_nome, admin_email, is_admin=0)
+    return _renderizar_admin_tenants(sucesso=f"Organização '{nome}' criada. {msg}")
 
-    tenants = database.listar_tenants()
-    return render_template("admin_tenants.html", tenants=tenants, sucesso=f"Organização '{nome}' criada com sucesso!")
+
+@app.route("/admin/tenants/<int:id_tenant>/editar", methods=["POST"])
+@admin_required
+def admin_editar_tenant(id_tenant):
+    tenant = database.buscar_tenant_por_id(id_tenant)
+    if not tenant:
+        return _renderizar_admin_tenants(erro="Organização não encontrada.")
+
+    nome = request.form.get("nome", "").strip()
+    slug = _normalizar_slug(request.form.get("slug", ""))
+    ativo = request.form.get("ativo") == "on"
+
+    if not nome or not slug:
+        return _renderizar_admin_tenants(erro="Nome e slug não podem ficar em branco.")
+
+    slug_existente = database.buscar_tenant_por_slug(slug)
+    if slug_existente and slug_existente["id"] != id_tenant:
+        return _renderizar_admin_tenants(erro="Já existe outra organização com esse slug.")
+
+    database.atualizar_tenant(id_tenant, nome, slug, ativo)
+    return _renderizar_admin_tenants(sucesso=f"Organização '{nome}' atualizada.")
+
+
+@app.route("/admin/tenants/<int:id_tenant>/excluir", methods=["POST"])
+@admin_required
+def admin_excluir_tenant(id_tenant):
+    tenant = database.buscar_tenant_por_id(id_tenant)
+    if not tenant:
+        return _renderizar_admin_tenants(erro="Organização não encontrada.")
+
+    confirmacao = request.form.get("confirmar_slug", "").strip().lower()
+    if confirmacao != tenant["slug"]:
+        return _renderizar_admin_tenants(erro=f"Confirmação incorreta. Digite exatamente \"{tenant['slug']}\" para excluir.")
+
+    # Não deixa você se excluir sem querer e ficar trancada fora da própria
+    # organização enquanto ainda está logada nela.
+    if tenant_atual() == id_tenant:
+        return _renderizar_admin_tenants(erro="Você não pode excluir a organização em que está logada agora.")
+
+    database.excluir_tenant(id_tenant)
+    return _renderizar_admin_tenants(sucesso=f"Organização '{tenant['nome']}' e todos os seus dados foram excluídos.")
+
+
+@app.route("/admin/tenants/<int:id_tenant>/novo-usuario", methods=["POST"])
+@admin_required
+def admin_novo_usuario_tenant(id_tenant):
+    tenant = database.buscar_tenant_por_id(id_tenant)
+    if not tenant:
+        return _renderizar_admin_tenants(erro="Organização não encontrada.")
+
+    nome_usuario = request.form.get("nome", "").strip()
+    email_usuario = request.form.get("email", "").strip().lower()
+
+    if not nome_usuario or not email_usuario:
+        return _renderizar_admin_tenants(erro="Preencha nome e email do novo usuário.")
+
+    if database.buscar_usuario_por_email(email_usuario, tenant_id=id_tenant):
+        return _renderizar_admin_tenants(erro=f"Já existe um usuário com esse email em '{tenant['nome']}'.")
+
+    # is_admin sempre 0 aqui: usuários adicionados a uma organização existente
+    # nunca recebem acesso de admin de plataforma por essa tela.
+    msg = _criar_usuario_com_convite(id_tenant, tenant["nome"], nome_usuario, email_usuario, is_admin=0)
+    return _renderizar_admin_tenants(sucesso=f"Usuário adicionado a '{tenant['nome']}'. {msg}")
 
 
 @app.route("/admin/tenants/<int:id_tenant>/gerar-token", methods=["POST"])
@@ -675,8 +781,7 @@ def admin_novo_tenant():
 def admin_gerar_token_tenant(id_tenant):
     novo_token = secrets.token_hex(24)
     database.atualizar_token_tenant(id_tenant, novo_token)
-    tenants = database.listar_tenants()
-    return render_template("admin_tenants.html", tenants=tenants, sucesso="Token de API regenerado.")
+    return _renderizar_admin_tenants(sucesso="Token de API regenerado.")
 
 
 # ===== FILTROS E FORMATADORES DE TEMPLATE =====

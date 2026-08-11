@@ -5,6 +5,7 @@ __pycache__/
 
 # Segredos e dados locais - nunca versionar
 .secret_key
+.env
 financeiro.db
 financeiro_backup*.db
 *.db-journal

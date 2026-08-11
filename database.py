@@ -228,6 +228,39 @@ def atualizar_token_tenant(tenant_id, novo_token):
     conexao.close()
 
 
+def atualizar_tenant(tenant_id, nome, slug, ativo):
+    conexao = conectar()
+    conexao.execute(
+        "UPDATE tenants SET nome = ?, slug = ?, ativo = ? WHERE id = ?",
+        (nome, slug, 1 if ativo else 0, tenant_id)
+    )
+    conexao.commit()
+    conexao.close()
+
+
+def excluir_tenant(tenant_id):
+    """Apaga a organização e TODOS os dados vinculados a ela (usuários,
+    categorias, lançamentos). Operação irreversível — a confirmação (digitar
+    o slug) deve acontecer na camada de rota, antes de chamar esta função."""
+    conexao = conectar()
+    conexao.execute("DELETE FROM lancamentos WHERE tenant_id = ?", (tenant_id,))
+    conexao.execute("DELETE FROM categorias WHERE tenant_id = ?", (tenant_id,))
+    conexao.execute("DELETE FROM usuarios WHERE tenant_id = ?", (tenant_id,))
+    conexao.execute("DELETE FROM tenants WHERE id = ?", (tenant_id,))
+    conexao.commit()
+    conexao.close()
+
+
+def listar_usuarios_por_tenant(tenant_id):
+    conexao = conectar()
+    usuarios = conexao.execute(
+        "SELECT id, nome, email, is_admin, deve_trocar_senha FROM usuarios WHERE tenant_id = ? ORDER BY nome ASC",
+        (tenant_id,)
+    ).fetchall()
+    conexao.close()
+    return usuarios
+
+
 # ===== CATEGORIAS =====
 
 def listar_categorias(tenant_id, tipo=None, esfera=None):
