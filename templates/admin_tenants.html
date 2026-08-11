@@ -73,20 +73,43 @@
                     <tr>
                         <th>Nome</th>
                         <th>Email</th>
-                        <th>Admin de plataforma</th>
+                        <th>Nível de acesso</th>
                         <th>Precisa trocar senha</th>
+                        <th>Ações</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for u in usuarios_por_tenant.get(t.id, []) %}
                     <tr>
-                        <td>{{ u.nome }}</td>
+                        <td>{{ u.nome }}{% if u.id == session.usuario_id %} <span class="text-muted small">(você)</span>{% endif %}</td>
                         <td class="text-break-token">{{ u.email }}</td>
-                        <td>{% if u.is_admin %}<span class="badge bg-warning text-dark">Sim</span>{% else %}<span class="text-muted small">Não</span>{% endif %}</td>
+                        <td>
+                            {% if u.is_admin %}
+                                <span class="badge bg-warning text-dark" title="Enxerga e gerencia TODAS as organizações da plataforma">
+                                    <i class="bi bi-shield-lock-fill me-1"></i>Admin de plataforma
+                                </span>
+                            {% else %}
+                                <span class="badge bg-light text-dark border">Usuário da organização</span>
+                            {% endif %}
+                        </td>
                         <td>{% if u.deve_trocar_senha %}<span class="badge bg-info text-dark">Sim</span>{% else %}<span class="text-muted small">Não</span>{% endif %}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('admin_alternar_admin_usuario', id_tenant=t.id, id_usuario=u.id) }}"
+                                  onsubmit="return confirm('{% if u.is_admin %}Remover o acesso de admin de plataforma de {{ u.nome }}?{% else %}Tornar {{ u.nome }} admin de plataforma? Ela(e) vai enxergar e gerenciar TODAS as organizações, não só esta.{% endif %}');">
+                                {% if u.is_admin %}
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary" {% if u.id == session.usuario_id %}disabled title="Você não pode remover seu próprio acesso"{% endif %}>
+                                        <i class="bi bi-shield-minus me-1"></i> Remover admin
+                                    </button>
+                                {% else %}
+                                    <button type="submit" class="btn btn-sm btn-outline-warning">
+                                        <i class="bi bi-shield-plus me-1"></i> Tornar admin
+                                    </button>
+                                {% endif %}
+                            </form>
+                        </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="4" class="text-center text-muted py-2">Nenhum usuário cadastrado.</td></tr>
+                    <tr><td colspan="5" class="text-center text-muted py-2">Nenhum usuário cadastrado.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

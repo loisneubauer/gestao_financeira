@@ -776,6 +776,30 @@ def admin_novo_usuario_tenant(id_tenant):
     return _renderizar_admin_tenants(sucesso=f"Usuário adicionado a '{tenant['nome']}'. {msg}")
 
 
+@app.route("/admin/tenants/<int:id_tenant>/usuarios/<int:id_usuario>/alternar-admin", methods=["POST"])
+@admin_required
+def admin_alternar_admin_usuario(id_tenant, id_usuario):
+    tenant = database.buscar_tenant_por_id(id_tenant)
+    if not tenant:
+        return _renderizar_admin_tenants(erro="Organização não encontrada.")
+
+    usuario = database.buscar_usuario_por_id(id_tenant, id_usuario)
+    if not usuario:
+        return _renderizar_admin_tenants(erro="Usuário não encontrado.")
+
+    novo_valor = 0 if usuario["is_admin"] else 1
+
+    if novo_valor == 0:
+        if usuario["id"] == session.get("usuario_id"):
+            return _renderizar_admin_tenants(erro="Você não pode remover o próprio acesso de admin. Peça para outro admin fazer isso.")
+        if database.contar_admins() <= 1:
+            return _renderizar_admin_tenants(erro="Não é possível remover o último admin da plataforma.")
+
+    database.alternar_admin_usuario(id_tenant, id_usuario, novo_valor)
+    acao = "promovido a admin de plataforma" if novo_valor else "removido do acesso de admin de plataforma"
+    return _renderizar_admin_tenants(sucesso=f"{usuario['nome']} foi {acao}.")
+
+
 @app.route("/admin/tenants/<int:id_tenant>/gerar-token", methods=["POST"])
 @admin_required
 def admin_gerar_token_tenant(id_tenant):

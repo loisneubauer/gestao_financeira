@@ -500,6 +500,27 @@ def atualizar_senha_usuario(tenant_id, id_usuario, nova_senha_hash):
     conexao.close()
 
 
+def alternar_admin_usuario(tenant_id, id_usuario, valor):
+    """Liga (valor=1) ou desliga (valor=0) o acesso de admin de plataforma
+    (área /admin/tenants, que enxerga TODAS as organizações) para um usuário."""
+    conexao = conectar()
+    conexao.execute(
+        "UPDATE usuarios SET is_admin = ? WHERE id = ? AND tenant_id = ?",
+        (1 if valor else 0, id_usuario, tenant_id)
+    )
+    conexao.commit()
+    conexao.close()
+
+
+def contar_admins():
+    """Conta quantos usuários (em qualquer organização) têm is_admin=1.
+    Usado para nunca deixar a plataforma sem nenhum admin."""
+    conexao = conectar()
+    total = conexao.execute("SELECT COUNT(*) AS total FROM usuarios WHERE is_admin = 1").fetchone()["total"]
+    conexao.close()
+    return total
+
+
 def marcar_deve_trocar_senha(tenant_id, id_usuario, valor=1):
     """Liga (valor=1) ou desliga (valor=0) a exigência de troca de senha no
     próximo login para um usuário específico."""
