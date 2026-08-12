@@ -94,18 +94,63 @@
                         </td>
                         <td>{% if u.deve_trocar_senha %}<span class="badge bg-info text-dark">Sim</span>{% else %}<span class="text-muted small">Não</span>{% endif %}</td>
                         <td>
-                            <form method="post" action="{{ url_for('admin_alternar_admin_usuario', id_tenant=t.id, id_usuario=u.id) }}"
-                                  onsubmit="return confirm('{% if u.is_admin %}Remover o acesso de admin de plataforma de {{ u.nome }}?{% else %}Tornar {{ u.nome }} admin de plataforma? Ela(e) vai enxergar e gerenciar TODAS as organizações, não só esta.{% endif %}');">
-                                {% if u.is_admin %}
-                                    <button type="submit" class="btn btn-sm btn-outline-secondary" {% if u.id == session.usuario_id %}disabled title="Você não pode remover seu próprio acesso"{% endif %}>
-                                        <i class="bi bi-shield-minus me-1"></i> Remover admin
+                            <div class="d-flex flex-wrap gap-1">
+                                <form method="post" action="{{ url_for('admin_alternar_admin_usuario', id_tenant=t.id, id_usuario=u.id) }}"
+                                      onsubmit="return confirm('{% if u.is_admin %}Remover o acesso de admin de plataforma de {{ u.nome }}?{% else %}Tornar {{ u.nome }} admin de plataforma? Ela(e) vai enxergar e gerenciar TODAS as organizações, não só esta.{% endif %}');">
+                                    {% if u.is_admin %}
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary" {% if u.id == session.usuario_id %}disabled title="Você não pode remover seu próprio acesso"{% endif %}>
+                                            <i class="bi bi-shield-minus me-1"></i> Remover admin
+                                        </button>
+                                    {% else %}
+                                        <button type="submit" class="btn btn-sm btn-outline-warning">
+                                            <i class="bi bi-shield-plus me-1"></i> Tornar admin
+                                        </button>
+                                    {% endif %}
+                                </form>
+
+                                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modalEditarUsuario{{ u.id }}" aria-label="Editar usuário">
+                                    <i class="bi bi-pencil"></i> Editar
+                                </button>
+
+                                <form method="post" action="{{ url_for('admin_excluir_usuario', id_tenant=t.id, id_usuario=u.id) }}"
+                                      onsubmit="return confirm('Excluir o usuário {{ u.nome }} ({{ u.email }})? Essa ação não pode ser desfeita.');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" aria-label="Excluir usuário" {% if u.id == session.usuario_id %}disabled title="Você não pode excluir a própria conta"{% endif %}>
+                                        <i class="bi bi-trash"></i> Excluir
                                     </button>
-                                {% else %}
-                                    <button type="submit" class="btn btn-sm btn-outline-warning">
-                                        <i class="bi bi-shield-plus me-1"></i> Tornar admin
-                                    </button>
-                                {% endif %}
-                            </form>
+                                </form>
+                            </div>
+
+                            <!-- Modal Editar Usuário -->
+                            <div class="modal fade" id="modalEditarUsuario{{ u.id }}" tabindex="-1">
+                                <div class="modal-dialog">
+                                    <div class="modal-content">
+                                        <form method="post" action="{{ url_for('admin_editar_usuario', id_tenant=t.id, id_usuario=u.id) }}">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">Editar usuário</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <div class="mb-3">
+                                                    <label class="form-label">Nome</label>
+                                                    <input type="text" name="nome" class="form-control" value="{{ u.nome }}" required>
+                                                </div>
+                                                <div class="mb-3">
+                                                    <label class="form-label">Email</label>
+                                                    <input type="email" name="email" class="form-control" value="{{ u.email }}" required>
+                                                </div>
+                                                <p class="text-muted small mb-0">
+                                                    <i class="bi bi-info-circle me-1"></i>
+                                                    Isso não altera a senha do usuário. Para forçar uma nova senha, use a exclusão + recriação (o usuário recebe um novo convite por email).
+                                                </p>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                <button type="submit" class="btn btn-primary">Salvar</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
                         </td>
                     </tr>
                     {% else %}

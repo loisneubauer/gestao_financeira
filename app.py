@@ -800,6 +800,58 @@ def admin_alternar_admin_usuario(id_tenant, id_usuario):
     return _renderizar_admin_tenants(sucesso=f"{usuario['nome']} foi {acao}.")
 
 
+@app.route("/admin/tenants/<int:id_tenant>/usuarios/<int:id_usuario>/editar", methods=["POST"])
+@admin_required
+def admin_editar_usuario(id_tenant, id_usuario):
+    tenant = database.buscar_tenant_por_id(id_tenant)
+    if not tenant:
+        return _renderizar_admin_tenants(erro="Organização não encontrada.")
+
+    usuario = database.buscar_usuario_por_id(id_tenant, id_usuario)
+    if not usuario:
+        return _renderizar_admin_tenants(erro="Usuário não encontrado.")
+
+    nome = request.form.get("nome", "").strip()
+    email = request.form.get("email", "").strip().lower()
+
+    if not nome or not email:
+        return _renderizar_admin_tenants(erro="Nome e email não podem ficar em branco.")
+
+    email_existente = database.buscar_usuario_por_email(email, tenant_id=id_tenant)
+    if email_existente and email_existente["id"] != id_usuario:
+        return _renderizar_admin_tenants(erro=f"Já existe outro usuário com o email {email} nesta organização.")
+
+    database.atualizar_usuario_admin(id_tenant, id_usuario, nome, email)
+
+    # Se for o próprio usuário logado editando os dados, atualiza a sessão
+    # também, pra navbar/saudação não ficarem com o nome antigo.
+    if id_usuario == session.get("usuario_id"):
+        session["usuario_nome"] = nome
+
+    return _renderizar_admin_tenants(sucesso=f"Usuário '{nome}' atualizado.")
+
+
+@app.route("/admin/tenants/<int:id_tenant>/usuarios/<int:id_usuario>/excluir", methods=["POST"])
+@admin_required
+def admin_excluir_usuario(id_tenant, id_usuario):
+    tenant = database.buscar_tenant_por_id(id_tenant)
+    if not tenant:
+        return _renderizar_admin_tenants(erro="Organização não encontrada.")
+
+    usuario = database.buscar_usuario_por_id(id_tenant, id_usuario)
+    if not usuario:
+        return _renderizar_admin_tenants(erro="Usuário não encontrado.")
+
+    if usuario["id"] == session.get("usuario_id"):
+        return _renderizar_admin_tenants(erro="Você não pode excluir a própria conta enquanto está logada nela.")
+
+    if usuario["is_admin"] and database.contar_admins() <= 1:
+        return _renderizar_admin_tenants(erro="Não é possível excluir o último admin da plataforma.")
+
+    database.excluir_usuario(id_tenant, id_usuario)
+    return _renderizar_admin_tenants(sucesso=f"Usuário '{usuario['nome']}' excluído.")
+
+
 @app.route("/admin/tenants/<int:id_tenant>/gerar-token", methods=["POST"])
 @admin_required
 def admin_gerar_token_tenant(id_tenant):

@@ -533,6 +533,26 @@ def marcar_deve_trocar_senha(tenant_id, id_usuario, valor=1):
     conexao.close()
 
 
+def atualizar_usuario_admin(tenant_id, id_usuario, nome, email):
+    """Atualiza nome/email de um usuário a partir da tela de administração
+    (diferente de atualizar_perfil_usuario, que é o próprio usuário editando
+    seu perfil/foto). Não mexe em senha."""
+    conexao = conectar()
+    conexao.execute(
+        "UPDATE usuarios SET nome = ?, email = ? WHERE id = ? AND tenant_id = ?",
+        (nome, email, id_usuario, tenant_id)
+    )
+    conexao.commit()
+    conexao.close()
+
+
+def excluir_usuario(tenant_id, id_usuario):
+    conexao = conectar()
+    conexao.execute("DELETE FROM usuarios WHERE id = ? AND tenant_id = ?", (id_usuario, tenant_id))
+    conexao.commit()
+    conexao.close()
+
+
 def atualizar_perfil_usuario(tenant_id, id_usuario, nome, saudacao, foto_perfil=None):
     conexao = conectar()
     if foto_perfil is not None:
