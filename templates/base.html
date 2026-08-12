@@ -85,6 +85,13 @@
             overflow-wrap: break-word;
             word-break: break-word;
         }
+
+        /* Tabelas com colunas de largura fixa (via colgroup) para alinhar
+           cabeçalhos entre cards/tabelas diferentes, independente do
+           tamanho do conteúdo (nomes, emails, tokens etc.) */
+        .tabela-usuarios {
+            table-layout: fixed;
+        }
     </style>
     {% block estilos_extra %}{% endblock %}
 </head>
