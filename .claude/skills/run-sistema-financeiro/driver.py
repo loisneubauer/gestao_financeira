@@ -365,6 +365,32 @@ def cmd_smoke(args):
     status, _ = chamar_webhook(base, {"descricao": "z", "valor": 1, "vencimento": "2026-12-31"})
     checa("aceita vencimento ISO válido", status == 201, f"status {status}")
 
+    print("\nExportação", flush=True)
+    status, csv_pagar = c.get("/exportar/Pagar")
+    checa("exporta contas a pagar", status == 200, f"status {status}")
+    linhas_csv = csv_pagar.splitlines()
+    checa("usa ';' como separador (Excel em português)", ";" in linhas_csv[0])
+    checa("cabeçalho traz a coluna Importância", "Importância" in linhas_csv[0])
+    checa("valor com vírgula decimal", any(",00" in l or "," in l.split(";")[5] for l in linhas_csv[1:-1]))
+    checa("data em DD/MM/AAAA", "/" in linhas_csv[1].split(";")[0])
+    checa("última linha é o TOTAL", linhas_csv[-1].startswith("TOTAL"))
+
+    import csv as _csv, io as _io
+    _linhas = list(_csv.reader(_io.StringIO(csv_pagar), delimiter=";"))
+    _i = _linhas[0].index("Valor")
+    _soma = sum(float(l[_i].replace(",", ".")) for l in _linhas[1:-1])
+    _declarado = float(_linhas[-1][_i].replace(",", "."))
+    checa("o TOTAL bate com a soma das linhas", abs(_soma - _declarado) < 0.01,
+          f"soma {_soma} vs total {_declarado}")
+
+    status, csv_receber = c.get("/exportar/Receber")
+    checa("exporta contas a receber", status == 200, f"status {status}")
+    checa("receber não tem coluna de importância",
+          "Importância" not in csv_receber.splitlines()[0])
+
+    status, corpo_invalido = c.get("/exportar/Qualquer")
+    checa("tipo inválido não devolve CSV", "Vencimento;" not in corpo_invalido)
+
     print("\nAdministração", flush=True)
     status, html = c.get("/admin/tenants")
     checa("área de organizações abre para admin", status == 200, f"status {status}")

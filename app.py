@@ -1,6 +1,8 @@
 # app.py - Arquivo Principal do Sistema Gestão Financeira
-from flask import Flask, render_template, request, redirect, url_for, jsonify, session
+from flask import Flask, render_template, request, redirect, url_for, jsonify, session, Response
 from functools import wraps
+import csv
+import io
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta, date
@@ -436,6 +438,94 @@ def pagina_inicial():
         dias_uteis=dias_uteis,
         mes_ano=mes_ano,
         esfera_filtro=esfera_filtro
+    )
+
+
+# ===== EXPORTAÇÃO =====
+
+# Separador ";" e vírgula decimal de propósito: é o que o Excel em português
+# entende ao abrir o arquivo com dois cliques. Com vírgula como separador de
+# colunas, o Excel brasileiro joga a linha inteira numa célula só.
+SEPARADOR_CSV = ";"
+
+
+def _valor_para_planilha(valor):
+    """Formata 1234.5 como "1234,50" — vírgula decimal, sem separador de
+    milhar. O Excel em português lê isso como número; com ponto, lê como texto
+    e o contador não consegue somar a coluna."""
+    return f"{float(valor or 0):.2f}".replace(".", ",")
+
+
+def _data_para_planilha(valor):
+    """Converte AAAA-MM-DD em DD/MM/AAAA. Vazio continua vazio."""
+    if not valor:
+        return ""
+    try:
+        ano, mes, dia = str(valor).split("-")
+        return f"{dia}/{mes}/{ano}"
+    except ValueError:
+        return valor
+
+
+@app.route("/exportar/<tipo>")
+@login_required
+def exportar_lancamentos(tipo):
+    """Exporta os lançamentos do mês em CSV, uma linha por conta.
+
+    Respeita o filtro de esfera da sessão: se a tela está em "Empresa", o
+    arquivo sai só com Empresa — que é o caso de mandar para o contador sem
+    junto os gastos de Casa.
+    """
+    if tipo not in ("Pagar", "Receber"):
+        return redirect(url_for("pagina_inicial"))
+
+    mes_ano = request.args.get("mes", date.today().strftime("%Y-%m"))
+    esfera_filtro = session.get("esfera_filtro", "Todas")
+    lancamentos = database.listar_lancamentos(
+        tenant_atual(), tipo=tipo, esfera=esfera_filtro, mes_ano=mes_ano
+    )
+
+    colunas = ["Vencimento", "Descrição", "Categoria", "Esfera", "Valor",
+               "Status", "Forma de Pagamento", "Data de Pagamento", "Observações"]
+    # A classificação de importância só existe para despesas.
+    if tipo == "Pagar":
+        colunas.insert(4, "Importância")
+
+    buffer = io.StringIO()
+    escritor = csv.writer(buffer, delimiter=SEPARADOR_CSV, lineterminator="\r\n")
+    escritor.writerow(colunas)
+
+    total = 0.0
+    for l in lancamentos:
+        total += float(l["valor"] or 0)
+        linha = [
+            _data_para_planilha(l["vencimento"]),
+            l["descricao"],
+            l["categoria_nome"] or "",
+            l["esfera"],
+            _valor_para_planilha(l["valor"]),
+            l["status"] or "",
+            l["forma_pagamento"] or "",
+            _data_para_planilha(l["data_pagamento"]),
+            l["observacoes"] or "",
+        ]
+        if tipo == "Pagar":
+            linha.insert(4, l["importancia"] or "Não classificado")
+        escritor.writerow(linha)
+
+    # Linha de total no fim: o contador confere a soma sem precisar refazer.
+    linha_total = [""] * len(colunas)
+    linha_total[0] = "TOTAL"
+    linha_total[colunas.index("Valor")] = _valor_para_planilha(total)
+    escritor.writerow(linha_total)
+
+    # utf-8-sig grava o BOM que o Excel usa para reconhecer UTF-8 — sem ele,
+    # acentos viram caracteres estranhos ao abrir no Windows.
+    nome = f"contas-a-{tipo.lower()}-{mes_ano}.csv"
+    return Response(
+        buffer.getvalue().encode("utf-8-sig"),
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
     )
 
 
