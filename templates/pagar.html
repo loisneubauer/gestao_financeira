@@ -35,6 +35,7 @@
                             <th class="col-ordenavel" data-col="recorrencia" data-tipo="numero">Recorrência <i class="bi bi-arrow-down-up small text-muted"></i></th>
                             <th class="col-ordenavel" data-col="esfera" data-tipo="texto">Esfera <i class="bi bi-arrow-down-up small text-muted"></i></th>
                             <th class="col-ordenavel" data-col="categoria" data-tipo="texto">Categoria <i class="bi bi-arrow-down-up small text-muted"></i></th>
+                            <th class="col-ordenavel" data-col="importancia" data-tipo="numero">Importância <i class="bi bi-arrow-down-up small text-muted"></i></th>
                             <th class="col-ordenavel" data-col="valor" data-tipo="numero">Valor <i class="bi bi-arrow-down-up small text-muted"></i></th>
                             <th class="col-ordenavel" data-col="forma" data-tipo="texto">Forma <i class="bi bi-arrow-down-up small text-muted"></i></th>
                             <th>Ações</th>
@@ -45,6 +46,7 @@
                         {% set eh_recorrente = l.recorrente == 1 or (l.frequencia_recorrencia and l.frequencia_recorrencia != 'Nenhuma') %}
                         {% set freq = l.frequencia_recorrencia or ('Mensal' if eh_recorrente else 'Nenhuma') %}
                         {% set rank_freq = {'Semanal': 3, 'Quinzenal': 2, 'Mensal': 1, 'Nenhuma': 0}[freq] %}
+                        {% set rank_importancia = niveis_importancia.index(l.importancia) + 1 if l.importancia in niveis_importancia else 0 %}
                         <tr class="{% if l.status == 'Pago' %}table-success opacity-75{% endif %}"
                             data-status="{{ l.status }}"
                             data-vencimento="{{ l.vencimento }}"
@@ -52,6 +54,7 @@
                             data-recorrencia="{{ rank_freq }}"
                             data-esfera="{{ l.esfera }}"
                             data-categoria="{{ (l.categoria_nome or '') | lower }}"
+                            data-importancia="{{ rank_importancia }}"
                             data-valor="{{ l.valor }}"
                             data-forma="{{ (l.forma_pagamento or '') | lower }}">
                             <td>
@@ -82,6 +85,15 @@
                                 </span>
                             </td>
                             <td>{{ l.categoria_nome or '-' }}</td>
+                            <td>
+                                {% if l.importancia in niveis_importancia %}
+                                    <span class="badge" style="background-color: {{ estilo_importancia[l.importancia].cor }};">
+                                        <i class="bi {{ estilo_importancia[l.importancia].icone }} me-1"></i>{{ l.importancia }}
+                                    </span>
+                                {% else %}
+                                    <span class="small text-muted">—</span>
+                                {% endif %}
+                            </td>
                             <td class="fw-bold text-danger">{{ l.valor | moeda_br }}</td>
                             <td><span class="small text-muted">{{ l.forma_pagamento or '-' }}</span></td>
                             <td>
@@ -195,6 +207,17 @@
                     </div>
 
                     <div class="mb-3">
+                        <label class="form-label font-weight-bold">Nível de Importância</label>
+                        <select name="importancia" class="form-select">
+                            <option value="">Não classificado</option>
+                            {% for nivel in niveis_importancia %}
+                                <option value="{{ nivel }}" {% if l.importancia == nivel %}selected{% endif %}>{{ nivel }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Do essencial ao evitável — alimenta o relatório de gastos evitáveis.</div>
+                    </div>
+
+                    <div class="mb-3">
                         <label class="form-label font-weight-bold">Observações (opcional)</label>
                         <textarea name="observacoes" class="form-control" rows="2">{{ l.observacoes or '' }}</textarea>
                     </div>
@@ -286,6 +309,17 @@
                             <option value="Quinzenal">Quinzenal (Repete a cada 15 dias)</option>
                             <option value="Semanal">Semanal (Repete a cada 7 dias)</option>
                         </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Nível de Importância</label>
+                        <select name="importancia" class="form-select">
+                            <option value="">Não classificado</option>
+                            {% for nivel in niveis_importancia %}
+                                <option value="{{ nivel }}">{{ nivel }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Do essencial ao evitável — alimenta o relatório de gastos evitáveis.</div>
                     </div>
 
                     <div class="mb-3">

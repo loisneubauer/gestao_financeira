@@ -3,6 +3,41 @@ from datetime import datetime, date, timedelta
 import database
 
 
+# Classificação do gasto, do mais essencial ao mais evitável. A ordem da lista
+# é a ordem de exibição em todo o sistema.
+NIVEIS_IMPORTANCIA = ["Imprescindível", "Necessário", "Supérfluo", "Impulso"]
+
+# Os dois últimos níveis são o que o relatório chama de "gasto evitável".
+NIVEIS_EVITAVEIS = ["Supérfluo", "Impulso"]
+
+NAO_CLASSIFICADO = "Não classificado"
+
+
+def _campo(registro, nome, padrao=None):
+    """Lê um campo de um sqlite3.Row com fallback.
+
+    sqlite3.Row NÃO tem .get() — chamar row.get("x") levanta AttributeError.
+    Como as funções aqui recebem ora Row (vindo do banco) ora dict (vindo do
+    formulário), este helper atende os dois e ainda tolera coluna ausente,
+    que é o caso de uma base antes da migração."""
+    if isinstance(registro, dict):
+        return registro.get(nome, padrao)
+    if nome in registro.keys():
+        valor = registro[nome]
+        return padrao if valor is None else valor
+    return padrao
+
+
+# Cor e ícone de cada nível, usados nos badges e no gráfico.
+ESTILO_IMPORTANCIA = {
+    "Imprescindível": {"cor": "#2E7D32", "icone": "bi-shield-check"},
+    "Necessário":     {"cor": "#0277BD", "icone": "bi-check-circle"},
+    "Supérfluo":      {"cor": "#EF6C00", "icone": "bi-emoji-smile"},
+    "Impulso":        {"cor": "#C62828", "icone": "bi-lightning"},
+    NAO_CLASSIFICADO: {"cor": "#9E9E9E", "icone": "bi-question-circle"},
+}
+
+
 def dias_uteis_restantes_no_mes(data_ref=None):
     """
     Calcula quantos dias úteis (segunda a sexta-feira) faltam a partir de hoje
@@ -107,6 +142,68 @@ def calcular_despesas_por_categoria(tenant_id, esfera_filtro="Todas", mes_ano=No
     return resultado
 
 
+def calcular_gastos_por_importancia(tenant_id, esfera_filtro="Todas", mes_ano=None):
+    """
+    Agrupa as despesas (Contas a Pagar) do mês pelo nível de importância, para
+    responder à pergunta que motivou o recurso: quanto do meu gasto era evitável?
+
+    Retorna um dicionário com:
+      - 'niveis': lista ordenada de {nivel, valor, percentual, quantidade, cor, icone},
+        já incluindo os não classificados no fim (se houver);
+      - 'total': soma de todas as despesas do mês;
+      - 'evitavel' / 'percentual_evitavel': soma e fatia de Supérfluo + Impulso;
+      - 'classificado' / 'nao_classificado': quanto já foi classificado e quanto falta.
+
+    O percentual evitável é calculado sobre o total JÁ CLASSIFICADO — dizer que
+    "10% foi evitável" quando metade dos gastos não tem classificação seria
+    enganoso.
+    """
+    if not mes_ano:
+        mes_ano = date.today().strftime("%Y-%m")
+
+    lancamentos = database.listar_lancamentos(tenant_id, tipo="Pagar", esfera=esfera_filtro, mes_ano=mes_ano)
+
+    somas = {nivel: 0.0 for nivel in NIVEIS_IMPORTANCIA}
+    somas[NAO_CLASSIFICADO] = 0.0
+    quantidades = {nivel: 0 for nivel in somas}
+
+    for l in lancamentos:
+        valor = float(l["valor"] or 0)
+        nivel = _campo(l, "importancia")
+        if nivel not in NIVEIS_IMPORTANCIA:
+            nivel = NAO_CLASSIFICADO
+        somas[nivel] += valor
+        quantidades[nivel] += 1
+
+    total = sum(somas.values())
+    nao_classificado = somas[NAO_CLASSIFICADO]
+    classificado = total - nao_classificado
+    evitavel = sum(somas[n] for n in NIVEIS_EVITAVEIS)
+
+    ordem = NIVEIS_IMPORTANCIA + ([NAO_CLASSIFICADO] if nao_classificado > 0 else [])
+    niveis = [
+        {
+            "nivel": nivel,
+            "valor": somas[nivel],
+            "quantidade": quantidades[nivel],
+            "percentual": (somas[nivel] / total * 100) if total else 0.0,
+            "cor": ESTILO_IMPORTANCIA[nivel]["cor"],
+            "icone": ESTILO_IMPORTANCIA[nivel]["icone"],
+        }
+        for nivel in ordem
+    ]
+
+    return {
+        "niveis": niveis,
+        "total": total,
+        "evitavel": evitavel,
+        "percentual_evitavel": (evitavel / classificado * 100) if classificado else 0.0,
+        "classificado": classificado,
+        "nao_classificado": nao_classificado,
+        "tem_classificacao": classificado > 0,
+    }
+
+
 def gerar_recorrencias_do_mes(tenant_id, mes_destino_str):
     """
     Gera automaticamente os lançamentos recorrentes para o mês especificado (AAAA-MM),
@@ -128,7 +225,10 @@ def gerar_recorrencias_do_mes(tenant_id, mes_destino_str):
 
     # Busca lançamentos recorrentes do mês anterior
     lancamentos_origem = database.listar_lancamentos(tenant_id, mes_ano=mes_origem_str)
-    recorrentes = [l for l in lancamentos_origem if l["recorrente"] == 1 or (l.get("frequencia_recorrencia") and l.get("frequencia_recorrencia") != "Nenhuma")]
+    recorrentes = [
+        l for l in lancamentos_origem
+        if l["recorrente"] == 1 or _campo(l, "frequencia_recorrencia", "Nenhuma") != "Nenhuma"
+    ]
 
     # Lançamentos que já existem no mês destino para evitar duplicidades
     existentes_destino = database.listar_lancamentos(tenant_id, mes_ano=mes_destino_str)
@@ -136,7 +236,7 @@ def gerar_recorrencias_do_mes(tenant_id, mes_destino_str):
 
     novos_gerados = 0
     for orig in recorrentes:
-        freq = orig.get("frequencia_recorrencia") or "Mensal"
+        freq = _campo(orig, "frequencia_recorrencia") or "Mensal"
         
         if freq in ["Semanal", "Quinzenal"]:
             delta_dias = 7 if freq == "Semanal" else 14
@@ -163,7 +263,8 @@ def gerar_recorrencias_do_mes(tenant_id, mes_destino_str):
                             "forma_pagamento": orig["forma_pagamento"],
                             "recorrente": 1,
                             "frequencia_recorrencia": freq,
-                            "observacoes": orig["observacoes"]
+                            "observacoes": orig["observacoes"],
+                            "importancia": _campo(orig, "importancia")
                         }
                         database.inserir_lancamento(tenant_id, dados_novo)
                         chaves_existentes.add(chave)
@@ -193,7 +294,8 @@ def gerar_recorrencias_do_mes(tenant_id, mes_destino_str):
                 "forma_pagamento": orig["forma_pagamento"],
                 "recorrente": 1,
                 "frequencia_recorrencia": "Mensal",
-                "observacoes": orig["observacoes"]
+                "observacoes": orig["observacoes"],
+                "importancia": _campo(orig, "importancia")
             }
             database.inserir_lancamento(tenant_id, dados_novo)
             chaves_existentes.add(chave)

@@ -83,7 +83,10 @@ def injetar_csrf_e_dados_globais():
     return {
         "csrf_token": lambda: session["csrf_token"],
         "esfera_filtro": esfera_atual,
-        "tenant_nome": session.get("tenant_nome", "")
+        "tenant_nome": session.get("tenant_nome", ""),
+        "niveis_importancia": calculos.NIVEIS_IMPORTANCIA,
+        "estilo_importancia": calculos.ESTILO_IMPORTANCIA,
+        "nao_classificado": calculos.NAO_CLASSIFICADO
     }
 
 
@@ -131,6 +134,12 @@ def _normalizar_slug(texto):
     Usado tanto na administração quanto no login — assim quem digitar
     "Laila Acupuntura" chega no mesmo lugar que "laila-acupuntura"."""
     return re.sub(r"[^a-z0-9-]+", "-", texto.strip().lower()).strip("-")
+
+
+def _importancia_valida(valor):
+    """Aceita só os níveis conhecidos; qualquer outra coisa (inclusive vazio)
+    vira None, que o sistema exibe como "Não classificado"."""
+    return valor if valor in calculos.NIVEIS_IMPORTANCIA else None
 
 
 # ===== AUTENTICAÇÃO E PERFIL =====
@@ -416,12 +425,14 @@ def pagina_inicial():
 
     resumo = calculos.calcular_resumo_financeiro(tenant_atual(), esfera_filtro, mes_ano)
     despesas_categorias = calculos.calcular_despesas_por_categoria(tenant_atual(), esfera_filtro, mes_ano)
+    importancia = calculos.calcular_gastos_por_importancia(tenant_atual(), esfera_filtro, mes_ano)
     dias_uteis = calculos.dias_uteis_restantes_no_mes()
 
     return render_template(
         "index.html",
         resumo=resumo,
         despesas_categorias=despesas_categorias,
+        importancia=importancia,
         dias_uteis=dias_uteis,
         mes_ano=mes_ano,
         esfera_filtro=esfera_filtro
@@ -460,7 +471,8 @@ def novo_pagar():
         "forma_pagamento": request.form.get("forma_pagamento", "Pix"),
         "recorrente": 1 if freq != "Nenhuma" else 0,
         "frequencia_recorrencia": freq,
-        "observacoes": request.form.get("observacoes", "")
+        "observacoes": request.form.get("observacoes", ""),
+        "importancia": _importancia_valida(request.form.get("importancia"))
     }
     if dados["status"] == "Pago":
         dados["data_pagamento"] = request.form.get("data_pagamento") or date.today().isoformat()
@@ -499,7 +511,8 @@ def editar_pagar(id_lancamento):
         "forma_pagamento": request.form.get("forma_pagamento", "Pix"),
         "recorrente": 1 if freq != "Nenhuma" else 0,
         "frequencia_recorrencia": freq,
-        "observacoes": request.form.get("observacoes", "")
+        "observacoes": request.form.get("observacoes", ""),
+        "importancia": _importancia_valida(request.form.get("importancia"))
     }
     if dados["status"] == "Pago":
         dados["data_pagamento"] = request.form.get("data_pagamento") or date.today().isoformat()

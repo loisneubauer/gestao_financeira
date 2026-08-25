@@ -99,6 +99,7 @@ Tabela central: cada linha é uma despesa (Pagar) ou receita (Receber). **Não h
 | `recorrente` | INTEGER | 0/1 — derivado automaticamente de `frequencia_recorrencia` |
 | `frequencia_recorrencia` | TEXT | `'Nenhuma'`, `'Mensal'`, `'Quinzenal'`, `'Semanal'` |
 | `observacoes` | TEXT | também marca a origem de integração (ver §5) |
+| `importancia` | TEXT | `'Imprescindível'`, `'Necessário'`, `'Supérfluo'`, `'Impulso'` ou NULL (ver §3.6) |
 
 ---
 
@@ -127,7 +128,27 @@ Duas rotinas complementares:
 
 Ambas evitam duplicidade comparando a chave `(descrição, tipo, esfera, valor, vencimento)`.
 
-### 3.5 Resumo Financeiro (Dashboard `/`)
+### 3.5 Importância do gasto
+
+Cada conta a pagar pode ser classificada em uma escala ordenada do essencial ao evitável, definida em `calculos.NIVEIS_IMPORTANCIA`:
+
+| Nível | Sentido |
+|---|---|
+| **Imprescindível** | aluguel, luz, água, comida — cortar quebra alguma coisa |
+| **Necessário** | insumos, transporte, plano — preciso, mas há margem de negociação |
+| **Supérfluo** | escolhi ter, sabendo que era extra |
+| **Impulso** | comprei sem planejar |
+
+`calcular_gastos_por_importancia(tenant_id, esfera, mes_ano)` agrupa as despesas do mês por nível e devolve os totais, as fatias percentuais, e o número que motivou o recurso: **quanto do gasto era evitável** (Supérfluo + Impulso).
+
+Dois cuidados na regra:
+
+- O percentual evitável é calculado sobre o total **já classificado**, não sobre o total do mês. Dizer "12% foi evitável" quando metade das despesas não tem classificação seria enganoso — por isso o dashboard também mostra quanto ainda falta classificar.
+- Lançamentos sem classificação (todos os anteriores à migração) aparecem como "Não classificado" e nunca recebem um nível por chute.
+
+A classificação é **só para despesas** — não existe em Contas a Receber. Recorrências herdam o nível do lançamento de origem.
+
+### 3.6 Resumo Financeiro (Dashboard `/`)
 `calcular_resumo_financeiro(tenant_id, esfera, mes_ano)` retorna, para o mês selecionado: total pago/atrasado/a vencer de Pagar e de Receber, **saldo atual** (recebido − pago) e **saldo projetado** (receber total − pagar total). `calcular_despesas_por_categoria` agrupa despesas do mês por categoria para o gráfico. `dias_uteis_restantes_no_mes` conta dias úteis (seg–sex) restantes no mês corrente.
 
 ---

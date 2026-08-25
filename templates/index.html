@@ -135,6 +135,82 @@
         </div>
     </div>
 </div>
+
+<!-- Gastos por Nível de Importância -->
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-header bg-white fw-bold py-3 border-bottom d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-bullseye me-2 text-primary"></i> Importância dos Gastos ({{ esfera_filtro }})</span>
+        {% if importancia.nao_classificado > 0 and importancia.total > 0 %}
+            <span class="badge bg-light text-secondary border fw-normal">
+                {{ importancia.nao_classificado | moeda_br }} ainda sem classificação
+            </span>
+        {% endif %}
+    </div>
+
+    {% if importancia.total == 0 %}
+        <div class="card-body p-4 text-muted">Nenhuma despesa cadastrada para este mês.</div>
+    {% elif not importancia.tem_classificacao %}
+        <div class="card-body p-4">
+            <p class="text-muted mb-1">Nenhuma despesa deste mês foi classificada ainda.</p>
+            <p class="text-muted small mb-0">
+                Ao cadastrar ou editar uma conta a pagar, escolha o nível de importância —
+                é o que permite responder quanto do seu gasto era evitável.
+            </p>
+        </div>
+    {% else %}
+        <div class="card-body p-4">
+            <div class="row align-items-center g-4">
+                <div class="col-md-4 text-center border-end">
+                    <div class="display-5 fw-bold {% if importancia.percentual_evitavel >= 25 %}text-danger{% elif importancia.percentual_evitavel >= 10 %}text-warning{% else %}text-success{% endif %}">
+                        {{ '%.0f' | format(importancia.percentual_evitavel) }}%
+                    </div>
+                    <div class="fw-semibold">do gasto era evitável</div>
+                    <div class="small text-muted mt-1">
+                        {{ importancia.evitavel | moeda_br }} em supérfluo e impulso
+                    </div>
+                    {% if importancia.nao_classificado > 0 %}
+                        <div class="small text-muted fst-italic mt-2">
+                            calculado sobre o que já foi classificado
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="col-md-8">
+                    <!-- Barra proporcional: a leitura do mês inteiro de uma vez -->
+                    <div class="progress mb-3" style="height: 26px;" role="img"
+                         aria-label="Distribuição das despesas do mês por nível de importância">
+                        {% for n in importancia.niveis %}
+                            {% if n.valor > 0 %}
+                                <div class="progress-bar" role="progressbar"
+                                     style="width: {{ n.percentual }}%; background-color: {{ n.cor }};"
+                                     title="{{ n.nivel }}: {{ n.valor | moeda_br }} ({{ '%.0f' | format(n.percentual) }}%)">
+                                    {% if n.percentual >= 12 %}{{ '%.0f' | format(n.percentual) }}%{% endif %}
+                                </div>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+
+                    <div class="row g-2">
+                        {% for n in importancia.niveis %}
+                            {% if n.valor > 0 %}
+                            <div class="col-6">
+                                <div class="d-flex justify-content-between align-items-center small py-1">
+                                    <span>
+                                        <i class="bi {{ n.icone }} me-1" style="color: {{ n.cor }};"></i>
+                                        {{ n.nivel }}
+                                        <span class="text-muted">({{ n.quantidade }})</span>
+                                    </span>
+                                    <span class="fw-semibold">{{ n.valor | moeda_br }}</span>
+                                </div>
+                            </div>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</div>
 {% endblock %}
 
 {% block scripts_extra %}

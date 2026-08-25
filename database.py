@@ -123,6 +123,7 @@ def criar_tabelas():
             recorrente INTEGER DEFAULT 0, -- 1 = Sim, 0 = Não
             frequencia_recorrencia TEXT DEFAULT 'Nenhuma',
             observacoes TEXT,
+            importancia TEXT, -- 'Imprescindível', 'Necessário', 'Supérfluo', 'Impulso' ou NULL
             FOREIGN KEY (categoria_id) REFERENCES categorias (id)
         )
     """)
@@ -162,6 +163,11 @@ def criar_tabelas():
     if _tabela_existe(conexao, "lancamentos") and not _coluna_existe(conexao, "lancamentos", "frequencia_recorrencia"):
         conexao.execute("ALTER TABLE lancamentos ADD COLUMN frequencia_recorrencia TEXT DEFAULT 'Nenhuma'")
         conexao.execute("UPDATE lancamentos SET frequencia_recorrencia = 'Mensal' WHERE recorrente = 1")
+
+    # Migração: coluna importancia (classificação do gasto). Fica NULL nos
+    # lançamentos antigos — "Não classificado" no relatório, sem chute.
+    if _tabela_existe(conexao, "lancamentos") and not _coluna_existe(conexao, "lancamentos", "importancia"):
+        conexao.execute("ALTER TABLE lancamentos ADD COLUMN importancia TEXT")
 
     # Migração legada: coluna is_admin (caso a tabela usuarios já tivesse tenant_id mas não is_admin)
     if _tabela_existe(conexao, "usuarios") and not _coluna_existe(conexao, "usuarios", "is_admin"):
@@ -370,13 +376,14 @@ def inserir_lancamento(tenant_id, dados):
     cursor = conexao.execute("""
         INSERT INTO lancamentos (
             tenant_id, descricao, tipo, esfera, categoria_id, valor, vencimento,
-            data_pagamento, status, forma_pagamento, recorrente, frequencia_recorrencia, observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            data_pagamento, status, forma_pagamento, recorrente, frequencia_recorrencia,
+            observacoes, importancia
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         tenant_id, dados["descricao"], dados["tipo"], dados["esfera"], dados.get("categoria_id"),
         dados["valor"], dados["vencimento"], dados.get("data_pagamento"),
         dados.get("status", "Pendente"), dados.get("forma_pagamento"),
-        recorrente_val, freq, dados.get("observacoes")
+        recorrente_val, freq, dados.get("observacoes"), dados.get("importancia")
     ))
     conexao.commit()
     id_novo = cursor.lastrowid
@@ -393,13 +400,14 @@ def atualizar_lancamento(tenant_id, id_lancamento, dados):
         UPDATE lancamentos SET
             descricao = ?, tipo = ?, esfera = ?, categoria_id = ?, valor = ?,
             vencimento = ?, data_pagamento = ?, status = ?, forma_pagamento = ?,
-            recorrente = ?, frequencia_recorrencia = ?, observacoes = ?
+            recorrente = ?, frequencia_recorrencia = ?, observacoes = ?, importancia = ?
         WHERE id = ? AND tenant_id = ?
     """, (
         dados["descricao"], dados["tipo"], dados["esfera"], dados.get("categoria_id"),
         dados["valor"], dados["vencimento"], dados.get("data_pagamento"),
         dados.get("status", "Pendente"), dados.get("forma_pagamento"),
-        recorrente_val, freq, dados.get("observacoes"), id_lancamento, tenant_id
+        recorrente_val, freq, dados.get("observacoes"), dados.get("importancia"),
+        id_lancamento, tenant_id
     ))
     conexao.commit()
     conexao.close()
