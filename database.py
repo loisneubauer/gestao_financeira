@@ -692,15 +692,6 @@ def listar_categorias(tenant_id, tipo=None, esfera=None):
     return categorias
 
 
-def buscar_categoria(tenant_id, id_categoria):
-    conexao = conectar()
-    categoria = conexao.execute(
-        "SELECT * FROM categorias WHERE id = ? AND tenant_id = ?", (id_categoria, tenant_id)
-    ).fetchone()
-    conexao.close()
-    return categoria
-
-
 def inserir_categoria(tenant_id, nome, tipo, esfera):
     conexao = conectar()
     conexao.execute(
@@ -875,16 +866,6 @@ def excluir_lancamentos_da_clinica(tenant_id):
     removidos = cursor.rowcount
     conexao.close()
     return removidos
-
-
-def excluir_lancamentos_detalhados_clinica(tenant_id):
-    conexao = conectar()
-    conexao.execute(
-        "DELETE FROM lancamentos WHERE tenant_id = ? AND observacoes LIKE '%ID Ref: clinic_pg_%'",
-        (tenant_id,)
-    )
-    conexao.commit()
-    conexao.close()
 
 
 # ===== USUÁRIOS =====

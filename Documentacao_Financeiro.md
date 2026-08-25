@@ -268,4 +268,3 @@ O atraso não é quebrado por mês de propósito: a clínica o trata como um mon
 - `Plano_Multi_Tenancy.md` — o plano que originou a arquitetura descrita em §1.1 (já executado).
 - `Roteiro_Testes_Multi_Tenancy.md` — roteiro de verificação do isolamento entre organizações.
 - `Roteiro_Deploy_PythonAnywhere.md` — passos de publicação.
-- `Documentacao_Financeiro.md` — cópia espelhada deste documento.

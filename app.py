@@ -4,7 +4,6 @@ from functools import wraps
 import csv
 import io
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta, date
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadTimeSignature
 import database
