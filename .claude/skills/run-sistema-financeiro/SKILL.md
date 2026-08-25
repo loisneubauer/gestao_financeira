@@ -32,7 +32,7 @@ Num clone limpo não existem `.secret_key` nem `financeiro.db` — os dois são 
 ./venv/bin/python .claude/skills/run-sistema-financeiro/driver.py smoke
 ```
 
-Sobe o app, exercita 22 checagens (login com organização, dashboard, CRUD de contas a pagar com nível de importância, recusa de POST sem CSRF, webhook autenticado e idempotente, área de admin, logout) e sai com **0** se tudo passou, **1** se algo falhou. Leva menos de 1 segundo.
+Sobe o app, exercita **93 checagens** e sai com **0** se tudo passou, **1** se algo falhou. Leva poucos segundos. Cobre login com organização e rate limit, dashboard, saldo de caixa que atravessa o mês, data de início, CRUD de contas a pagar com nível de importância, filtro por nível, exportação CSV, recusa de POST sem CSRF, webhook autenticado e idempotente, integração ligada/desligada por organização, tabela de importância editável, área de admin e logout.
 
 Saída real:
 
@@ -44,7 +44,7 @@ Autenticação
   [ ok ] login com organização + email + senha
   [ ok ] dashboard carrega
   ...
-todas as 22 checagens passaram
+todas as 93 checagens passaram
 ```
 
 **Este é o único teste automatizado do projeto** — não existe suíte de testes nem CI. Rode depois de qualquer mudança.
@@ -89,16 +89,7 @@ Use só para mexer nos dados de verdade. Para desenvolver e verificar mudanças,
 
 - **Cinco senhas erradas travam o login por 15 minutos**, por (IP + organização + email). Um driver que fique tentando senhas erradas se auto-bloqueia — e o bloqueio vale mesmo depois com a senha certa. O contador vive em memória: reiniciar o app zera.
 
-- **`criar_usuarios.py` cria a organização com slug `padrao`, mas o app renomeia esse slug na inicialização seguinte.** A migração troca `padrao` pelo nome da organização (`Acupuntura Bem-estar` → `acupuntura-bem-estar`). Quem seguir o script e tentar entrar com "padrao" recebe "Organização, email ou senha incorretos". Verificado:
-
-  ```
-  logo apos criar_usuarios.py -> slug: padrao
-  depois de iniciar o app     -> slug: acupuntura-bem-estar
-  ```
-
-  Para descobrir o slug de verdade: `sqlite3 financeiro.db "SELECT nome, slug FROM tenants;"`
-
-- **`criar_usuarios.py` é interativo** (`getpass`), então não serve para script. Para semear sem interação, use `database.criar_tenant()` + `database.criar_usuario()` direto, como o driver faz em `semear()`.
+- **Não existe script de setup inicial.** Organizações e usuários nascem em ⚙️ → Organizações, com convite por e-mail e senha temporária. Para semear sem interação (testes, demo), use `database.criar_tenant()` + `database.criar_usuario()` direto, como o driver faz em `semear()`. Havia um `criar_usuarios.py`, apagado em 25/08/2026: ele criava a organização com slug `padrao`, que a migração renomeia na inicialização seguinte — quem o seguisse não conseguia entrar.
 
 - **Não importe este projeto e o `acupuntura_sistema V3` no mesmo processo Python.** Os dois têm `app.py`, `database.py` e `calculos.py` na raiz; o `sys.path` resolve para o primeiro e o segundo import devolve o módulo errado, com erro do tipo `module 'calculos' has no attribute 'calcular_painel_financeiro'`.
 
