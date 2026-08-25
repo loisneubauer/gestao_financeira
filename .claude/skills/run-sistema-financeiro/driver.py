@@ -328,6 +328,31 @@ def cmd_smoke(args):
     checa("valor válido continua gravando (sem regressão)",
           status == 302 and "valor valido do smoke" in html, f"status {status}")
 
+    print("\nFiltro por nível (clique no card do dashboard)", flush=True)
+    _, dash = c.get("/")
+    import re as _re
+    linkados = set(_re.findall(r"/pagar\?mes=[\d-]+&(?:amp;)?nivel=(\w+)", dash))
+    checa("dashboard gera link para cada nível", linkados >= {"1", "2", "3", "4"}, f"{linkados}")
+    checa("e para os não classificados", "sem" in linkados, f"{linkados}")
+
+    _, p1 = c.get("/pagar?nivel=1")
+    checa("filtro traz só o nível pedido",
+          "Aluguel do consultório" in p1 and "Bolsa que vi na vitrine" not in p1)
+    checa("mostra qual filtro está ativo", "Indispensável" in p1)
+
+    _, psem = c.get("/pagar?nivel=sem")
+    checa("filtro 'sem classificação' funciona",
+          "Manutenção do ar" in psem and "Aluguel do consultório" not in psem)
+
+    st, pinv = c.get("/pagar?nivel=99")
+    checa("nível inválido não quebra, mostra tudo",
+          st == 200 and "Aluguel do consultório" in pinv and "Bolsa que vi na vitrine" in pinv)
+
+    _, csv_f = c.get("/exportar/Pagar?nivel=4")
+    linhas_f = csv_f.splitlines()[1:-1]
+    checa("exportação respeita o filtro",
+          len(linhas_f) >= 1 and all("Evitável" in l for l in linhas_f), f"{len(linhas_f)} linhas")
+
     print("\nContas a receber", flush=True)
     status, html = c.get("/receber")
     checa("listagem carrega", status == 200, f"status {status}")

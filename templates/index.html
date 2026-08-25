@@ -181,11 +181,12 @@
                          aria-label="Distribuição das despesas do mês por nível de importância">
                         {% for n in importancia.niveis %}
                             {% if n.valor > 0 %}
-                                <div class="progress-bar" role="progressbar"
-                                     style="width: {{ n.percentual }}%; background-color: {{ n.cor }};"
-                                     title="{{ n.nome }}: {{ n.valor | moeda_br }} ({{ '%.0f' | format(n.percentual) }}%)">
+                                <a class="progress-bar text-decoration-none"
+                                   href="{{ url_for('listar_pagar', mes=mes_ano, nivel=n.nivel or 'sem') }}"
+                                   style="width: {{ n.percentual }}%; background-color: {{ n.cor }};"
+                                   title="{{ n.nome }}: {{ n.valor | moeda_br }} ({{ '%.0f' | format(n.percentual) }}%) — clique para ver os gastos">
                                     {% if n.percentual >= 12 %}{{ '%.0f' | format(n.percentual) }}%{% endif %}
-                                </div>
+                                </a>
                             {% endif %}
                         {% endfor %}
                     </div>
@@ -194,14 +195,16 @@
                         {% for n in importancia.niveis %}
                             {% if n.valor > 0 %}
                             <div class="col-6">
-                                <div class="d-flex justify-content-between align-items-center small py-1">
+                                <a class="d-flex justify-content-between align-items-center small py-1 px-2 rounded text-decoration-none text-body link-nivel"
+                                   href="{{ url_for('listar_pagar', mes=mes_ano, nivel=n.nivel or 'sem') }}"
+                                   title="Ver os gastos deste nível">
                                     <span>
                                         <i class="bi {{ n.icone }} me-1" style="color: {{ n.cor }};"></i>
                                         {{ n.nome }}
                                         <span class="text-muted">({{ n.quantidade }})</span>
                                     </span>
                                     <span class="fw-semibold">{{ n.valor | moeda_br }}</span>
-                                </div>
+                                </a>
                             </div>
                             {% endif %}
                         {% endfor %}
@@ -214,6 +217,12 @@
 {% endblock %}
 
 {% block scripts_extra %}
+<style>
+    /* Deixa claro que dá para clicar, sem poluir o card */
+    .link-nivel:hover { background-color: rgba(107, 78, 142, 0.08); }
+    a.progress-bar { cursor: pointer; }
+    a.progress-bar:hover { filter: brightness(1.12); }
+</style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     {% if despesas_categorias|length > 0 %}

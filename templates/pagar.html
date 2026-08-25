@@ -10,13 +10,23 @@
     <div>
         <h3 class="mb-1 fw-bold text-danger"><i class="bi bi-arrow-down-circle me-2"></i> Contas a Pagar ({{ esfera_filtro }})</h3>
         <p class="text-muted small mb-0">Controle de despesas e vencimentos</p>
+        {% if nome_filtro %}
+            <a href="{{ url_for('listar_pagar', mes=mes_ano) }}"
+               class="badge rounded-pill text-decoration-none mt-2 d-inline-flex align-items-center"
+               style="background-color: #6B4E8E;"
+               title="Remover o filtro e ver todas as despesas do mês">
+                <i class="bi bi-funnel-fill me-1"></i> {{ nome_filtro }}
+                <span class="ms-2">&times;</span>
+            </a>
+        {% endif %}
     </div>
 
     <div class="d-flex align-items-center mt-2 mt-md-0">
         <form method="GET" class="me-2">
+            {% if filtro_nivel %}<input type="hidden" name="nivel" value="{{ filtro_nivel }}">{% endif %}
             <input type="month" name="mes" value="{{ mes_ano }}" class="form-control form-control-sm" onchange="this.form.submit()">
         </form>
-        <a href="{{ url_for('exportar_lancamentos', tipo='Pagar', mes=mes_ano) }}"
+        <a href="{{ url_for('exportar_lancamentos', tipo='Pagar', mes=mes_ano, nivel=filtro_nivel) }}"
            class="btn btn-outline-secondary btn-sm me-2" title="Baixar em CSV (abre no Excel)">
             <i class="bi bi-download me-1"></i> Exportar
         </a>
@@ -30,7 +40,18 @@
 <div class="card shadow-sm border-0 mb-4">
     <div class="card-body p-0">
         {% if lancamentos|length == 0 %}
-            <div class="p-4 text-center text-muted">Nenhuma conta a pagar encontrada para este mês.</div>
+            <div class="p-4 text-center text-muted">
+                {% if nome_filtro %}
+                    Nenhuma despesa classificada como <strong>{{ nome_filtro }}</strong> neste mês.
+                    <div class="mt-2">
+                        <a href="{{ url_for('listar_pagar', mes=mes_ano) }}" class="btn btn-sm btn-outline-secondary">
+                            Ver todas as despesas do mês
+                        </a>
+                    </div>
+                {% else %}
+                    Nenhuma conta a pagar encontrada para este mês.
+                {% endif %}
+            </div>
         {% else %}
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0" id="tabela-pagar">

@@ -538,6 +538,20 @@ def exportar_lancamentos(tipo):
         tenant_atual(), tipo=tipo, esfera=esfera_filtro, mes_ano=mes_ano
     )
 
+    # Se a tela está filtrada por nível, o arquivo sai igual ao que se vê —
+    # exportar mais do que está na tela seria surpresa desagradável.
+    filtro_nivel = request.args.get("nivel")
+    sufixo_nome = ""
+    if tipo == "Pagar" and filtro_nivel:
+        if filtro_nivel == "sem":
+            lancamentos = [l for l in lancamentos if not l["importancia_nivel"]]
+            sufixo_nome = "-sem-classificacao"
+        else:
+            nivel = _nivel_importancia_valido(filtro_nivel)
+            if nivel:
+                lancamentos = [l for l in lancamentos if l["importancia_nivel"] == nivel]
+                sufixo_nome = f"-nivel{nivel}"
+
     nomes_niveis = calculos.nomes_dos_niveis(tenant_atual())
     colunas = ["Vencimento", "Descrição", "Categoria", "Esfera", "Valor",
                "Status", "Forma de Pagamento", "Data de Pagamento", "Observações"]
@@ -575,7 +589,7 @@ def exportar_lancamentos(tipo):
 
     # utf-8-sig grava o BOM que o Excel usa para reconhecer UTF-8 — sem ele,
     # acentos viram caracteres estranhos ao abrir no Windows.
-    nome = f"contas-a-{tipo.lower()}-{mes_ano}.csv"
+    nome = f"contas-a-{tipo.lower()}-{mes_ano}{sufixo_nome}.csv"
     return Response(
         buffer.getvalue().encode("utf-8-sig"),
         mimetype="text/csv; charset=utf-8",
@@ -594,7 +608,25 @@ def listar_pagar():
     lancamentos = database.listar_lancamentos(tenant_atual(), tipo="Pagar", esfera=esfera_filtro, mes_ano=mes_ano)
     categorias = database.listar_categorias(tenant_atual(), tipo="Pagar", esfera=esfera_filtro)
 
-    return render_template("pagar.html", lancamentos=lancamentos, categorias=categorias, mes_ano=mes_ano)
+    # Filtro por nível de importância — é como o card do dashboard leva até
+    # os gastos daquela faixa ("tá, mas o que é esse valor?"). "sem" traz os
+    # que ainda não foram classificados.
+    filtro_nivel = request.args.get("nivel")
+    nome_filtro = None
+    if filtro_nivel == "sem":
+        lancamentos = [l for l in lancamentos if not l["importancia_nivel"]]
+        nome_filtro = calculos.NAO_CLASSIFICADO
+    elif filtro_nivel:
+        nivel = _nivel_importancia_valido(filtro_nivel)
+        if nivel:
+            lancamentos = [l for l in lancamentos if l["importancia_nivel"] == nivel]
+            nome_filtro = calculos.nomes_dos_niveis(tenant_atual()).get(nivel)
+        else:
+            filtro_nivel = None
+
+    return render_template("pagar.html", lancamentos=lancamentos, categorias=categorias,
+                           mes_ano=mes_ano, filtro_nivel=filtro_nivel, nome_filtro=nome_filtro,
+                           erro=request.args.get("erro"))
 
 
 @app.route("/pagar/novo", methods=["POST"])
