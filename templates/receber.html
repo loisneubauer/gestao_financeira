@@ -108,7 +108,7 @@
                                     <span class="badge bg-secondary" title="Soma das receitas atrasadas vindas da clínica — corrija na origem">
                                         <i class="bi bi-calculator me-1"></i> Somatório
                                     </span>
-                                {% elif l.observacoes and 'ID Ref:' in l.observacoes %}
+                                {% elif integracao_ativa and l.observacoes and 'ID Ref:' in l.observacoes %}
                                     <span class="badge bg-secondary" title="Veio da integração com a clínica; a origem é a fonte da verdade">
                                         <i class="bi bi-lock-fill me-1"></i> Sincronizado (Somente Leitura)
                                     </span>
@@ -145,7 +145,7 @@
 
 <!-- Modais de Edição de Receitas (fora da tabela) -->
 {% for l in lancamentos %}
-    {% if l.id != 'atraso_consolidado' and not (l.observacoes and 'ID Ref:' in l.observacoes) %}
+    {% if l.id != 'atraso_consolidado' and not (integracao_ativa and l.observacoes and 'ID Ref:' in l.observacoes) %}
     <div class="modal fade" id="modalEditarReceita{{ l.id }}" tabindex="-1">
         <div class="modal-dialog modal-dialog-scrollable">
             <div class="modal-content text-start">

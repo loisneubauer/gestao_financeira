@@ -62,6 +62,8 @@ def semear(database):
     from werkzeug.security import generate_password_hash
 
     tid = database.criar_tenant(ORG_NOME, ORG_SLUG, API_TOKEN)
+    # A demo representa uma clínica com o sistema de atendimento integrado.
+    database.definir_integracao_ativa(tid, True)
     database.criar_usuario(
         tid, "Lois", EMAIL, generate_password_hash(SENHA), saudacao="Sra.", is_admin=1
     )
@@ -585,6 +587,55 @@ def cmd_smoke(args):
     c.post("/configuracoes/importancia/restaurar", {"csrf_token": token})
     _, html = c.get("/configuracoes/importancia")
     checa("restaurar padrão devolve o nome original", "Desejável" in html)
+
+    print("\nIntegração ligada ou desligada por organização", flush=True)
+    # Nem toda organização recebe lançamentos de um sistema externo. Sem
+    # integração, contas a receber se comportam como na esfera Casa.
+    from werkzeug.security import generate_password_hash as _hash2
+    from datetime import timedelta as _td2
+    futuro = (date.today() + _td2(days=5)).isoformat()
+
+    tid_sem = database.criar_tenant("Sem Integração", "sem-integracao", "tok-sem-integ")
+    database.criar_usuario(tid_sem, "U", "u@ex.com", _hash2("senha1234"), is_admin=1)
+    checa("organização nova nasce sem integração", database.integracao_ativa(tid_sem) is False)
+
+    status_sem, _ = chamar_webhook(base, {"descricao": "x", "valor": 10}, token="tok-sem-integ")
+    checa("webhook recusa organização sem integração", status_sem == 403, f"status {status_sem}")
+
+    lid = database.inserir_lancamento(tid_sem, {
+        "descricao": "Receita marcada como da clínica", "tipo": "Receber", "esfera": "Empresa",
+        "categoria_id": None, "valor": 900.0, "vencimento": futuro, "status": "Pendente",
+        "forma_pagamento": "Pix", "frequencia_recorrencia": "Nenhuma",
+        "observacoes": "Gerado via Integração Clínica. ID Ref: clinic_x"})
+
+    c_sem = Cliente(base)
+    c_sem.post("/login", {"organizacao": "sem-integracao", "email": "u@ex.com", "senha": "senha1234"})
+    c_sem.get("/trocar-esfera/Empresa")
+    _, html_sem = c_sem.get("/receber")
+    checa("sem integração, nada fica somente leitura", "Somente Leitura" not in html_sem)
+    checa("sem integração, o lançamento é editável", f"modalEditarReceita{lid}" in html_sem)
+
+    tok_sem = c_sem.csrf("/receber")
+    c_sem.post(f"/receber/{lid}/editar", {
+        "csrf_token": tok_sem, "descricao": "Corrigido à mão", "esfera": "Empresa",
+        "valor": "950.00", "vencimento": futuro, "status": "Pendente",
+        "forma_pagamento": "Pix", "frequencia_recorrencia": "Nenhuma", "observacoes": ""})
+    checa("e o servidor deixa editar de verdade",
+          database.buscar_lancamento(tid_sem, lid)["descricao"] == "Corrigido à mão")
+
+    # Ligando a integração, a proteção volta
+    database.definir_integracao_ativa(tid_sem, True)
+    # Lançamento novo: o editado acima teve o "ID Ref" apagado pelo próprio
+    # formulário, então não serve para conferir a marca.
+    database.inserir_lancamento(tid_sem, {
+        "descricao": "Outra da clínica", "tipo": "Receber", "esfera": "Empresa",
+        "categoria_id": None, "valor": 300.0, "vencimento": futuro, "status": "Pendente",
+        "forma_pagamento": "Pix", "frequencia_recorrencia": "Nenhuma",
+        "observacoes": "Gerado via Integração Clínica. ID Ref: clinic_y"})
+    _, html_com = c_sem.get("/receber")
+    checa("ligando a integração, o selo volta", "Somente Leitura" in html_com)
+    status_com, _ = chamar_webhook(base, {"descricao": "y", "valor": 10}, token="tok-sem-integ")
+    checa("e o webhook passa a aceitar", status_com in (200, 201), f"status {status_com}")
 
     print("\nAdministração", flush=True)
     status, html = c.get("/admin/tenants")

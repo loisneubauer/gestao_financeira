@@ -183,6 +183,27 @@ _BASES_DE_DATA = {
 }
 
 
+def integracao_ativa(tenant_id):
+    """A organização recebe lançamentos de um sistema externo (a clínica)?
+
+    Quando desligada, contas a receber se comportam como na esfera Casa: tudo
+    lançado à mão, tudo editável, sem consolidação de atrasados."""
+    conexao = conectar()
+    linha = conexao.execute(
+        "SELECT integracao_ativa FROM tenants WHERE id = ?", (tenant_id,)
+    ).fetchone()
+    conexao.close()
+    return bool(linha["integracao_ativa"]) if linha else False
+
+
+def definir_integracao_ativa(tenant_id, ativa):
+    conexao = conectar()
+    conexao.execute("UPDATE tenants SET integracao_ativa = ? WHERE id = ?",
+                    (1 if ativa else 0, tenant_id))
+    conexao.commit()
+    conexao.close()
+
+
 def obter_data_inicio(tenant_id):
     """Data em que a organização passou a usar o sistema, ou None se ainda não
     foi definida. Antes dela, nada conta no caixa e nenhum mês é navegável."""
@@ -505,6 +526,19 @@ def criar_tabelas():
     if _tabela_existe(conexao, "lancamentos") and not _coluna_existe(conexao, "lancamentos", "frequencia_recorrencia"):
         conexao.execute("ALTER TABLE lancamentos ADD COLUMN frequencia_recorrencia TEXT DEFAULT 'Nenhuma'")
         conexao.execute("UPDATE lancamentos SET frequencia_recorrencia = 'Mensal' WHERE recorrente = 1")
+
+    # Migração: nem toda organização tem a integração com um sistema de clínica.
+    # Sem ela, contas a receber são lançadas à mão como na esfera Casa — sem
+    # linha somente leitura e sem consolidação de atrasados.
+    if _tabela_existe(conexao, "tenants") and not _coluna_existe(conexao, "tenants", "integracao_ativa"):
+        conexao.execute("ALTER TABLE tenants ADD COLUMN integracao_ativa INTEGER NOT NULL DEFAULT 0")
+        # Quem já recebeu lançamento pela integração está claramente usando —
+        # liga para essas, em vez de desligar algo que já funcionava.
+        conexao.execute("""
+            UPDATE tenants SET integracao_ativa = 1
+             WHERE id IN (SELECT DISTINCT tenant_id FROM lancamentos
+                           WHERE observacoes LIKE '%ID Ref: clinic_%')
+        """)
 
     # Migração: data em que a organização começou a usar o sistema. Antes dela,
     # nada entra no caixa e nenhum mês é navegável — a Lois decidiu começar do

@@ -201,6 +201,21 @@
                         <label class="form-label">Slug</label>
                         <input type="text" name="slug" class="form-control" value="{{ t.slug }}" required>
                     </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="integracao_ativa"
+                                   id="integracao{{ t.id }}" {% if t.integracao_ativa %}checked{% endif %}>
+                            <label class="form-check-label fw-semibold" for="integracao{{ t.id }}">
+                                Recebe lançamentos de um sistema externo
+                            </label>
+                        </div>
+                        <div class="form-text">
+                            Ligado: as contas a receber vindas da integração ficam somente leitura e os
+                            atrasados são agrupados numa linha só — a origem é a fonte da verdade.
+                            Desligado: tudo é lançado e corrigido à mão, como na esfera Casa, e o webhook
+                            recusa envios.
+                        </div>
+                    </div>
                     <div class="form-check">
                         <input type="checkbox" name="ativo" class="form-check-input" id="ativoCheck{{ t.id }}" {% if t.ativo %}checked{% endif %}>
                         <label class="form-check-label" for="ativoCheck{{ t.id }}">Organização ativa (desmarcar bloqueia login de todos os usuários dela)</label>

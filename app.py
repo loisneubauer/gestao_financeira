@@ -138,6 +138,18 @@ def _normalizar_slug(texto):
     return re.sub(r"[^a-z0-9-]+", "-", texto.strip().lower()).strip("-")
 
 
+def _lancamento_da_integracao(lancamento):
+    """Veio de um sistema externo E a organização usa integração.
+
+    A marca no texto não basta: se a organização não tem integração ligada,
+    nada é somente leitura — tudo se comporta como na esfera Casa, lançado e
+    corrigido à mão."""
+    if not database.integracao_ativa(tenant_atual()):
+        return False
+    observacoes = lancamento["observacoes"] if lancamento else None
+    return bool(observacoes and "ID Ref:" in observacoes)
+
+
 def _mes_navegavel(mes_pedido):
     """Impede navegar para antes do início do sistema.
 
@@ -824,7 +836,7 @@ def listar_receber():
             # Lançamento feito à mão continua aparecendo sozinho, senão some da
             # lista e não há como corrigir nem excluir — e na esfera Casa não
             # existe integração nenhuma para justificar o agrupamento.
-            veio_da_integracao = l["observacoes"] and "ID Ref:" in l["observacoes"]
+            veio_da_integracao = _lancamento_da_integracao(l)
             if veio_da_integracao:
                 atrasados_lista.append(l)
                 if not vencimento_mais_recente_atrasado or vencimento > vencimento_mais_recente_atrasado:
@@ -871,6 +883,7 @@ def listar_receber():
         categorias=categorias,
         mes_ano=mes_ano,
         mes_minimo=mes_minimo,
+        integracao_ativa=database.integracao_ativa(tenant_atual()),
         resumo_receber=resumo_receber
     )
 
@@ -913,7 +926,7 @@ def novo_receber():
 def toggle_status_receber(id_lancamento):
     lancamento = database.buscar_lancamento(tenant_atual(), id_lancamento)
     if lancamento:
-        if lancamento["observacoes"] and "ID Ref:" in lancamento["observacoes"]:
+        if _lancamento_da_integracao(lancamento):
             return redirect(url_for("listar_receber", erro="Lançamentos sincronizados da clínica são somente leitura."))
         novo_status = "Pendente" if lancamento["status"] == "Pago" else "Pago"
         data_pagto = date.today().isoformat() if novo_status == "Pago" else None
@@ -925,7 +938,7 @@ def toggle_status_receber(id_lancamento):
 @login_required
 def editar_receber(id_lancamento):
     lancamento = database.buscar_lancamento(tenant_atual(), id_lancamento)
-    if lancamento and lancamento["observacoes"] and "ID Ref:" in lancamento["observacoes"]:
+    if _lancamento_da_integracao(lancamento):
         return redirect(url_for("listar_receber", erro="Lançamentos sincronizados da clínica são somente leitura e não podem ser editados."))
 
     # Validação do navegador (type="number") não é garantia no servidor.
@@ -964,7 +977,7 @@ def editar_receber(id_lancamento):
 @login_required
 def excluir_receber(id_lancamento):
     lancamento = database.buscar_lancamento(tenant_atual(), id_lancamento)
-    if lancamento and lancamento["observacoes"] and "ID Ref:" in lancamento["observacoes"]:
+    if _lancamento_da_integracao(lancamento):
         return redirect(url_for("listar_receber", erro="Lançamentos sincronizados da clínica são somente leitura e não podem ser excluídos."))
 
     database.excluir_lancamento(tenant_atual(), id_lancamento)
@@ -1101,6 +1114,7 @@ def admin_editar_tenant(id_tenant):
         return _renderizar_admin_tenants(erro="Já existe outra organização com esse slug.")
 
     database.atualizar_tenant(id_tenant, nome, slug, ativo)
+    database.definir_integracao_ativa(id_tenant, request.form.get("integracao_ativa") == "on")
     return _renderizar_admin_tenants(sucesso=f"Organização '{nome}' atualizada.")
 
 
@@ -1305,6 +1319,12 @@ def api_webhook_receber():
     tenant = database.buscar_tenant_por_token(api_token)
     if not tenant:
         return jsonify({"erro": "Token de API inválido ou ausente. Envie o header X-Api-Token."}), 401
+    # Token válido não basta: a organização precisa usar integração. Sem isso,
+    # as contas a receber dela são lançadas à mão e um envio externo criaria
+    # linhas que ninguém pediu — e que ficariam somente leitura.
+    if not database.integracao_ativa(tenant["id"]):
+        return jsonify({"erro": "Esta organização não usa integração externa. "
+                                "Ative a opção em Organizações antes de enviar lançamentos."}), 403
 
     dados = request.json
     if not dados or "descricao" not in dados or "valor" not in dados:
