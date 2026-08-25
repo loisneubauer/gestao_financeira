@@ -490,6 +490,28 @@ def buscar_lancamento_por_referencia(tenant_id, referencia_id):
     return lancamento
 
 
+def excluir_lancamentos_da_clinica(tenant_id):
+    """Apaga TODOS os lançamentos gerados pela integração com a clínica
+    (qualquer 'ID Ref: clinic_...'), devolvendo quantos foram removidos.
+
+    A clínica é a fonte da verdade dessas receitas, então cada sincronização
+    reescreve o conjunto inteiro em vez de só atualizar linha a linha: assim
+    uma linha que deixou de existir lá (um mês que saiu do atraso, uma projeção
+    que virou histórico) não fica órfã aqui somando valor errado para sempre.
+
+    Só toca no que veio do webhook — lançamentos criados à mão na tela não têm
+    a marca 'ID Ref:' e são preservados."""
+    conexao = conectar()
+    cursor = conexao.execute(
+        "DELETE FROM lancamentos WHERE tenant_id = ? AND observacoes LIKE '%ID Ref: clinic_%'",
+        (tenant_id,)
+    )
+    conexao.commit()
+    removidos = cursor.rowcount
+    conexao.close()
+    return removidos
+
+
 def excluir_lancamentos_detalhados_clinica(tenant_id):
     conexao = conectar()
     conexao.execute(

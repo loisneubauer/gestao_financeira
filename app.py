@@ -976,6 +976,23 @@ def data_br(valor):
 
 # ===== API WEBHOOK (INTEGRAÇÃO FASE 2 COM A CLÍNICA) =====
 
+@app.route("/api/v1/receber/limpar-clinica", methods=["POST"])
+def api_webhook_limpar_clinica():
+    """Apaga os lançamentos vindos da integração com a clínica, para que ela
+    reescreva o conjunto inteiro em seguida.
+
+    Existe porque a clínica é a fonte da verdade dessas receitas: sem a
+    limpeza, uma linha que deixou de existir lá (um mês que saiu do atraso,
+    por exemplo) ficaria aqui para sempre somando um valor que não é mais
+    verdade. Lançamentos criados à mão não têm 'ID Ref:' e não são tocados."""
+    tenant = database.buscar_tenant_por_token(request.headers.get("X-Api-Token"))
+    if not tenant:
+        return jsonify({"erro": "Token de API inválido ou ausente. Envie o header X-Api-Token."}), 401
+
+    removidos = database.excluir_lancamentos_da_clinica(tenant["id"])
+    return jsonify({"sucesso": True, "removidos": removidos}), 200
+
+
 @app.route("/api/v1/receber/webhook", methods=["POST"])
 def api_webhook_receber():
     # Cada organização tem seu próprio token de API (tenants.api_token). O

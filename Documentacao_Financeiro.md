@@ -194,6 +194,24 @@ Configuração do email em `.env` (ver `.env.example`): `GMAIL_USER` e `GMAIL_AP
 
 **Somente leitura na UI**: lançamentos cujo `observacoes` contém `"ID Ref:"` têm edição, exclusão e troca de status bloqueados na interface — a fonte da verdade é o sistema de origem.
 
+### 5.1 Limpeza — `POST /api/v1/receber/limpar-clinica`
+
+Autenticado pelo mesmo `X-Api-Token`. Apaga todos os lançamentos da organização marcados com `ID Ref: clinic_`, devolvendo quantos removeu. Lançamentos criados à mão não têm essa marca e são preservados.
+
+Existe porque a clínica é a fonte da verdade dessas receitas e **reescreve o conjunto inteiro** a cada sincronização, em vez de atualizar linha a linha. Sem isso, uma linha que deixou de existir lá — um mês que saiu do atraso, por exemplo — ficaria aqui para sempre somando um valor que não é mais verdade.
+
+### 5.2 O que a clínica envia
+
+Desde 25/08/2026 são três tipos de linha, calculados pelo Painel Financeiro da própria clínica:
+
+| Linha | Conteúdo |
+|---|---|
+| `clinic_resumo_pago_AAAA-MM` | Total recebido em cada mês do histórico |
+| `clinic_resumo_pendente_AAAA-MM` | A receber **do mês atual** |
+| `clinic_resumo_atrasado_total` | Atraso **acumulado**, uma linha só |
+
+O atraso não é quebrado por mês de propósito: a clínica o trata como um montante que se arrasta, não como algo que pertence a um mês. O formato anterior (uma linha de atraso por mês) era invenção da integração e produzia totais que não batiam com a tela da clínica.
+
 ---
 
 ## 6. Módulos / Rotas do Sistema
