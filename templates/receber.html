@@ -3,6 +3,9 @@
 {% block titulo %}Contas a Receber — Gestão Financeira{% endblock %}
 
 {% block conteudo %}
+{% if request.args.get("erro") %}
+    <div class="alert alert-danger text-start">{{ request.args.get("erro") }}</div>
+{% endif %}
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap">
     <div>
         <h3 class="mb-1 fw-bold text-success"><i class="bi bi-arrow-up-circle me-2"></i> Contas a Receber ({{ esfera_filtro }})</h3>

@@ -456,6 +456,13 @@ def listar_pagar():
 @app.route("/pagar/novo", methods=["POST"])
 @login_required
 def novo_pagar():
+    # O campo do formulário já é type="number", mas isso não garante nada no
+    # servidor (navegador antigo, extensão, requisição reenviada...). Sem essa
+    # guarda, um valor inválido derrubava a rota com ValueError (HTTP 500).
+    valor = _valor_numerico(request.form.get("valor"))
+    if valor is None:
+        return redirect(url_for("listar_pagar", erro="Valor inválido. Use um número com ponto como separador decimal (ex.: 150.00)."))
+
     freq = request.form.get("frequencia_recorrencia")
     if not freq:
         freq = "Mensal" if request.form.get("recorrente") else "Nenhuma"
@@ -465,7 +472,7 @@ def novo_pagar():
         "tipo": "Pagar",
         "esfera": request.form.get("esfera", "Empresa"),
         "categoria_id": request.form.get("categoria_id") or None,
-        "valor": float(request.form.get("valor", 0)),
+        "valor": valor,
         "vencimento": request.form.get("vencimento", date.today().isoformat()),
         "status": request.form.get("status", "Pendente"),
         "forma_pagamento": request.form.get("forma_pagamento", "Pix"),
@@ -496,6 +503,11 @@ def toggle_status_pagar(id_lancamento):
 @app.route("/pagar/<int:id_lancamento>/editar", methods=["POST"])
 @login_required
 def editar_pagar(id_lancamento):
+    # Validação do navegador (type="number") não é garantia no servidor.
+    valor = _valor_numerico(request.form.get("valor"))
+    if valor is None:
+        return redirect(url_for("listar_pagar", erro="Valor inválido. Use um número com ponto como separador decimal (ex.: 150.00)."))
+
     freq = request.form.get("frequencia_recorrencia")
     if not freq:
         freq = "Mensal" if request.form.get("recorrente") else "Nenhuma"
@@ -505,7 +517,7 @@ def editar_pagar(id_lancamento):
         "tipo": "Pagar",
         "esfera": request.form.get("esfera", "Empresa"),
         "categoria_id": request.form.get("categoria_id") or None,
-        "valor": float(request.form.get("valor", 0)),
+        "valor": valor,
         "vencimento": request.form.get("vencimento", date.today().isoformat()),
         "status": request.form.get("status", "Pendente"),
         "forma_pagamento": request.form.get("forma_pagamento", "Pix"),
@@ -612,6 +624,11 @@ def listar_receber():
 @app.route("/receber/novo", methods=["POST"])
 @login_required
 def novo_receber():
+    # Validação do navegador (type="number") não é garantia no servidor.
+    valor = _valor_numerico(request.form.get("valor"))
+    if valor is None:
+        return redirect(url_for("listar_receber", erro="Valor inválido. Use um número com ponto como separador decimal (ex.: 150.00)."))
+
     freq = request.form.get("frequencia_recorrencia")
     if not freq:
         freq = "Mensal" if request.form.get("recorrente") else "Nenhuma"
@@ -621,7 +638,7 @@ def novo_receber():
         "tipo": "Receber",
         "esfera": request.form.get("esfera", "Empresa"),
         "categoria_id": request.form.get("categoria_id") or None,
-        "valor": float(request.form.get("valor", 0)),
+        "valor": valor,
         "vencimento": request.form.get("vencimento", date.today().isoformat()),
         "status": request.form.get("status", "Pendente"),
         "forma_pagamento": request.form.get("forma_pagamento", "Pix"),
@@ -657,6 +674,11 @@ def editar_receber(id_lancamento):
     if lancamento and lancamento["observacoes"] and "ID Ref:" in lancamento["observacoes"]:
         return redirect(url_for("listar_receber", erro="Lançamentos sincronizados da clínica são somente leitura e não podem ser editados."))
 
+    # Validação do navegador (type="number") não é garantia no servidor.
+    valor = _valor_numerico(request.form.get("valor"))
+    if valor is None:
+        return redirect(url_for("listar_receber", erro="Valor inválido. Use um número com ponto como separador decimal (ex.: 150.00)."))
+
     freq = request.form.get("frequencia_recorrencia")
     if not freq:
         freq = "Mensal" if request.form.get("recorrente") else "Nenhuma"
@@ -666,7 +688,7 @@ def editar_receber(id_lancamento):
         "tipo": "Receber",
         "esfera": request.form.get("esfera", "Empresa"),
         "categoria_id": request.form.get("categoria_id") or None,
-        "valor": float(request.form.get("valor", 0)),
+        "valor": valor,
         "vencimento": request.form.get("vencimento", date.today().isoformat()),
         "status": request.form.get("status", "Pendente"),
         "forma_pagamento": request.form.get("forma_pagamento", "Pix"),

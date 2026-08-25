@@ -257,7 +257,7 @@ def cmd_smoke(args):
         print(linha, flush=True)
 
     database, caminho_db = preparar_banco()
-    semear(database)
+    tid = semear(database)
     porta = porta_livre(args.port)
     base = subir_app(porta)
     print(f"app no ar em {base} (banco temporário: {caminho_db})\n", flush=True)
@@ -299,6 +299,34 @@ def cmd_smoke(args):
     checa("POST sem CSRF é recusado",
           c.post("/pagar/novo", {"descricao": "sem token", "valor": "1",
                                  "vencimento": date.today().isoformat()})[0] == 400)
+
+    # Valor inválido não pode derrubar a rota com HTTP 500 nem gravar nada —
+    # o navegador restringe o campo (type="number"), mas o servidor não pode
+    # depender só disso.
+    qtd_antes_valor_invalido = len(database.listar_lancamentos(tid))
+    token = c.csrf("/pagar")
+    status, _ = c.post("/pagar/novo", {
+        "csrf_token": token, "descricao": "valor invalido do smoke",
+        "esfera": "Casa", "valor": "abc",
+        "vencimento": date.today().isoformat(), "status": "Pendente",
+        "forma_pagamento": "Pix", "frequencia_recorrencia": "Nenhuma",
+        "importancia": "", "observacoes": "",
+    })
+    checa("valor não numérico não derruba a rota (sem 500)", status != 500, f"status {status}")
+    checa("valor não numérico não grava lançamento",
+          len(database.listar_lancamentos(tid)) == qtd_antes_valor_invalido)
+
+    token = c.csrf("/pagar")
+    status, _ = c.post("/pagar/novo", {
+        "csrf_token": token, "descricao": "valor valido do smoke",
+        "esfera": "Casa", "valor": "77.50",
+        "vencimento": date.today().isoformat(), "status": "Pendente",
+        "forma_pagamento": "Pix", "frequencia_recorrencia": "Nenhuma",
+        "importancia": "", "observacoes": "",
+    })
+    _, html = c.get("/pagar")
+    checa("valor válido continua gravando (sem regressão)",
+          status == 302 and "valor valido do smoke" in html, f"status {status}")
 
     print("\nContas a receber", flush=True)
     status, html = c.get("/receber")
