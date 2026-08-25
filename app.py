@@ -976,6 +976,33 @@ def data_br(valor):
 
 # ===== API WEBHOOK (INTEGRAÇÃO FASE 2 COM A CLÍNICA) =====
 
+def _data_iso_valida(valor):
+    """Aceita só datas no formato AAAA-MM-DD e devolve None para qualquer
+    outra coisa. Existe porque as listagens filtram por mês com
+    strftime('%Y-%m', vencimento): uma data fora do padrão ISO (por exemplo
+    "31/12/2026") não dá erro nenhum, só faz o lançamento sumir de toda
+    tela mensal — o dinheiro fica no banco, invisível na interface."""
+    if not isinstance(valor, str):
+        return None
+    try:
+        return datetime.strptime(valor, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return None
+
+
+def _valor_numerico(valor):
+    """Converte para float quando possível, devolve None caso contrário.
+    Existe porque float(None) e float("1234,56") levantam TypeError/
+    ValueError e derrubariam a rota com um HTTP 500 em vez de um erro
+    claro para quem está integrando."""
+    if valor is None:
+        return None
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        return None
+
+
 @app.route("/api/v1/receber/limpar-clinica", methods=["POST"])
 def api_webhook_limpar_clinica():
     """Apaga os lançamentos vindos da integração com a clínica, para que ela
@@ -1007,6 +1034,17 @@ def api_webhook_receber():
     if not dados or "descricao" not in dados or "valor" not in dados:
         return jsonify({"erro": "Dados incompletos"}), 400
 
+    valor = _valor_numerico(dados["valor"])
+    if valor is None:
+        return jsonify({"erro": f"Campo 'valor' precisa ser numérico. Recebido: {dados['valor']!r}"}), 400
+
+    if "vencimento" not in dados:
+        vencimento = date.today().isoformat()
+    else:
+        vencimento = _data_iso_valida(dados["vencimento"])
+        if vencimento is None:
+            return jsonify({"erro": f"Campo 'vencimento' precisa estar no formato AAAA-MM-DD. Recebido: {dados['vencimento']!r}"}), 400
+
     ref_id = dados.get("referencia_id")
     existente = database.buscar_lancamento_por_referencia(tenant["id"], ref_id) if ref_id else None
 
@@ -1015,8 +1053,8 @@ def api_webhook_receber():
         "tipo": "Receber",
         "esfera": "Empresa",
         "categoria_id": dados.get("categoria_id"),
-        "valor": float(dados["valor"]),
-        "vencimento": dados.get("vencimento", date.today().isoformat()),
+        "valor": valor,
+        "vencimento": vencimento,
         "status": dados.get("status", "Pendente"),
         "forma_pagamento": dados.get("forma_pagamento", "Pix"),
         "recorrente": 0,

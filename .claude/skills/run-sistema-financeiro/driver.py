@@ -328,6 +328,15 @@ def cmd_smoke(args):
     checa("reenviar atualiza em vez de duplicar",
           status == 200 and corpo and corpo.get("acao") == "atualizado", f"{status} {corpo}")
 
+    status, _ = chamar_webhook(base, {"descricao": "z", "valor": 1, "vencimento": "31/12/2026"})
+    checa("recusa vencimento em formato brasileiro", status == 400, f"status {status}")
+
+    status, _ = chamar_webhook(base, {"descricao": "z", "valor": "abc"})
+    checa("recusa valor não numérico", status == 400, f"status {status}")
+
+    status, _ = chamar_webhook(base, {"descricao": "z", "valor": 1, "vencimento": "2026-12-31"})
+    checa("aceita vencimento ISO válido", status == 201, f"status {status}")
+
     print("\nAdministração", flush=True)
     status, html = c.get("/admin/tenants")
     checa("área de organizações abre para admin", status == 200, f"status {status}")
