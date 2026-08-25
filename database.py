@@ -93,66 +93,121 @@ NIVEIS_IMPORTANCIA_PADRAO = [
 ]
 
 
-def _semear_niveis_importancia(conexao):
-    """Cria os 4 níveis padrão se ainda não existirem. Nunca sobrescreve o que
-    já está lá — a tabela é editável, e uma edição da Lois não pode ser desfeita
-    no próximo reinício do app."""
-    for nivel, nome, apelido, significado, ex_empresa, ex_casa in NIVEIS_IMPORTANCIA_PADRAO:
-        conexao.execute("""
-            INSERT OR IGNORE INTO niveis_importancia
-                (nivel, nome, apelido, significado, exemplo_empresa, exemplo_casa)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (nivel, nome, apelido, significado, ex_empresa, ex_casa))
+def _migrar_niveis_importancia_para_multi_tenant(conexao):
+    """Converte a tabela de níveis global (primeira versão) em uma por
+    organização, replicando o que estava lá para cada tenant.
+
+    A versão global durou pouco, mas se alguém já tinha editado um nível, essa
+    edição vira o ponto de partida de todas as organizações — melhor do que
+    descartar e voltar ao padrão sem avisar."""
+    if not _tabela_existe(conexao, "niveis_importancia"):
+        return
+    if _coluna_existe(conexao, "niveis_importancia", "tenant_id"):
+        return
+
+    antigos = conexao.execute(
+        "SELECT nivel, nome, apelido, significado, exemplo_empresa, exemplo_casa "
+        "FROM niveis_importancia ORDER BY nivel"
+    ).fetchall()
+
+    conexao.execute("DROP TABLE niveis_importancia")
+    conexao.execute("""
+        CREATE TABLE niveis_importancia (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL REFERENCES tenants (id),
+            nivel INTEGER NOT NULL,
+            nome TEXT NOT NULL,
+            apelido TEXT,
+            significado TEXT,
+            exemplo_empresa TEXT,
+            exemplo_casa TEXT,
+            UNIQUE (tenant_id, nivel)
+        )
+    """)
+
+    tenants = [linha["id"] for linha in conexao.execute("SELECT id FROM tenants").fetchall()]
+    for tid in tenants:
+        for linha in antigos:
+            conexao.execute("""
+                INSERT OR IGNORE INTO niveis_importancia
+                    (tenant_id, nivel, nome, apelido, significado, exemplo_empresa, exemplo_casa)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (tid, linha["nivel"], linha["nome"], linha["apelido"],
+                  linha["significado"], linha["exemplo_empresa"], linha["exemplo_casa"]))
+
+
+def _semear_niveis_importancia(conexao, tenant_id=None):
+    """Dá a cada organização os 4 níveis padrão, se ela ainda não os tiver.
+
+    Cada organização tem a sua própria tabela: a escala que a Lois desenhou é o
+    padrão de fábrica, e ajustar para um cliente não mexe nos outros.
+
+    Nunca sobrescreve o que já está lá — uma edição feita na tela não pode ser
+    desfeita no próximo reinício do app. Sem tenant_id, semeia todas."""
+    if tenant_id is None:
+        alvos = [linha["id"] for linha in conexao.execute("SELECT id FROM tenants").fetchall()]
+    else:
+        alvos = [tenant_id]
+
+    for tid in alvos:
+        for nivel, nome, apelido, significado, ex_empresa, ex_casa in NIVEIS_IMPORTANCIA_PADRAO:
+            conexao.execute("""
+                INSERT OR IGNORE INTO niveis_importancia
+                    (tenant_id, nivel, nome, apelido, significado, exemplo_empresa, exemplo_casa)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (tid, nivel, nome, apelido, significado, ex_empresa, ex_casa))
 
 
 # ===== NÍVEIS DE IMPORTÂNCIA =====
 
-def listar_niveis_importancia():
-    """Devolve os níveis do mais essencial (1) ao mais evitável (4)."""
+def listar_niveis_importancia(tenant_id):
+    """Devolve os níveis da organização, do mais essencial (1) ao mais
+    evitável (4)."""
     conexao = conectar()
     niveis = conexao.execute(
-        "SELECT * FROM niveis_importancia ORDER BY nivel ASC"
+        "SELECT * FROM niveis_importancia WHERE tenant_id = ? ORDER BY nivel ASC",
+        (tenant_id,)
     ).fetchall()
     conexao.close()
     return niveis
 
 
-def atualizar_nivel_importancia(nivel, nome, apelido, significado, exemplo_empresa, exemplo_casa):
-    """Edita o rótulo e os textos de um nível. O número do nível nunca muda —
-    é ele que os lançamentos guardam."""
+def atualizar_nivel_importancia(tenant_id, nivel, nome, apelido, significado, exemplo_empresa, exemplo_casa):
+    """Edita o rótulo e os textos de um nível DESTA organização. O número do
+    nível nunca muda — é ele que os lançamentos guardam."""
     conexao = conectar()
     conexao.execute("""
         UPDATE niveis_importancia
            SET nome = ?, apelido = ?, significado = ?, exemplo_empresa = ?, exemplo_casa = ?
-         WHERE nivel = ?
-    """, (nome, apelido, significado, exemplo_empresa, exemplo_casa, nivel))
+         WHERE nivel = ? AND tenant_id = ?
+    """, (nome, apelido, significado, exemplo_empresa, exemplo_casa, nivel, tenant_id))
     conexao.commit()
     conexao.close()
 
 
-def restaurar_niveis_importancia_padrao():
-    """Volta os 4 níveis ao texto padrão. Usado pelo botão de restaurar."""
+def restaurar_niveis_importancia_padrao(tenant_id):
+    """Volta os 4 níveis DESTA organização ao padrão de fábrica."""
     conexao = conectar()
     for nivel, nome, apelido, significado, ex_empresa, ex_casa in NIVEIS_IMPORTANCIA_PADRAO:
         conexao.execute("""
             UPDATE niveis_importancia
                SET nome = ?, apelido = ?, significado = ?, exemplo_empresa = ?, exemplo_casa = ?
-             WHERE nivel = ?
-        """, (nome, apelido, significado, ex_empresa, ex_casa, nivel))
+             WHERE nivel = ? AND tenant_id = ?
+        """, (nome, apelido, significado, ex_empresa, ex_casa, nivel, tenant_id))
     conexao.commit()
     conexao.close()
 
 
-def contar_lancamentos_por_nivel():
-    """Quantos lançamentos usam cada nível — mostrado na tela de edição para a
-    Lois saber o que está mexendo antes de renomear."""
+def contar_lancamentos_por_nivel(tenant_id):
+    """Quantos lançamentos DESTA organização usam cada nível — mostrado na tela
+    de edição, para saber o que está sendo mexido antes de renomear."""
     conexao = conectar()
     linhas = conexao.execute("""
         SELECT importancia_nivel AS nivel, COUNT(*) AS total
           FROM lancamentos
-         WHERE importancia_nivel IS NOT NULL
+         WHERE tenant_id = ? AND importancia_nivel IS NOT NULL
       GROUP BY importancia_nivel
-    """).fetchall()
+    """, (tenant_id,)).fetchall()
     conexao.close()
     return {linha["nivel"]: linha["total"] for linha in linhas}
 
@@ -262,12 +317,15 @@ def criar_tabelas():
     # que nenhum lançamento já classificado se perca.
     conexao.execute("""
         CREATE TABLE IF NOT EXISTS niveis_importancia (
-            nivel INTEGER PRIMARY KEY,      -- 1 = mais essencial ... 4 = desperdício
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL REFERENCES tenants (id),
+            nivel INTEGER NOT NULL,         -- 1 = mais essencial ... 4 = desperdício
             nome TEXT NOT NULL,             -- "Indispensável"
             apelido TEXT,                   -- "Crítico"
             significado TEXT,               -- o que significa na prática
             exemplo_empresa TEXT,
-            exemplo_casa TEXT
+            exemplo_casa TEXT,
+            UNIQUE (tenant_id, nivel)
         )
     """)
 
@@ -322,6 +380,7 @@ def criar_tabelas():
         # A coluna `importancia` (texto) fica no banco de propósito, como rede
         # de segurança para conferir a conversão. Nada mais escreve nela.
 
+    _migrar_niveis_importancia_para_multi_tenant(conexao)
     _semear_niveis_importancia(conexao)
 
     # Migração: o slug automático "padrao" vira o nome real da organização,
@@ -385,8 +444,11 @@ def criar_tenant(nome, slug, api_token=None):
         "INSERT INTO tenants (nome, slug, ativo, api_token) VALUES (?, ?, 1, ?)",
         (nome, slug, api_token)
     )
-    conexao.commit()
     id_novo = cursor.lastrowid
+    # A organização já nasce com a escala padrão de importância, para a tela
+    # nunca aparecer vazia — e ela pode ajustar a sua sem afetar as outras.
+    _semear_niveis_importancia(conexao, id_novo)
+    conexao.commit()
     conexao.close()
     return id_novo
 

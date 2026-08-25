@@ -24,10 +24,10 @@ ESTILO_NIVEL = {
 }
 
 
-def nomes_dos_niveis():
-    """Mapa {nivel: nome} lido do banco, para rotular badges e relatórios.
+def nomes_dos_niveis(tenant_id):
+    """Mapa {nivel: nome} da organização, para rotular badges e relatórios.
     Cai no número puro se algum nível sumir da tabela, em vez de estourar."""
-    nomes = {n["nivel"]: n["nome"] for n in database.listar_niveis_importancia()}
+    nomes = {n["nivel"]: n["nome"] for n in database.listar_niveis_importancia(tenant_id)}
     return {n: nomes.get(n, f"Nível {n}") for n in NIVEIS_VALIDOS}
 
 
@@ -171,7 +171,7 @@ def calcular_gastos_por_importancia(tenant_id, esfera_filtro="Todas", mes_ano=No
         mes_ano = date.today().strftime("%Y-%m")
 
     lancamentos = database.listar_lancamentos(tenant_id, tipo="Pagar", esfera=esfera_filtro, mes_ano=mes_ano)
-    nomes = nomes_dos_niveis()
+    nomes = nomes_dos_niveis(tenant_id)
 
     somas = {nivel: 0.0 for nivel in NIVEIS_VALIDOS}
     somas[None] = 0.0

@@ -410,6 +410,22 @@ def cmd_smoke(args):
           len([l for l in database.listar_lancamentos(tid, tipo="Pagar")
                if l["importancia_nivel"] == 3]) > 0)
 
+    # Cada organização tem a sua tabela: renomear numa não pode vazar na outra.
+    from werkzeug.security import generate_password_hash as _hash
+    tid2 = database.criar_tenant("Outra Clínica", "outra-clinica", "tok-outra")
+    database.criar_usuario(tid2, "Outra", "outra@ex.com", _hash("senha1234"), is_admin=1)
+    niveis2 = {n["nivel"]: n["nome"] for n in database.listar_niveis_importancia(tid2)}
+    checa("organização nova já nasce com a escala padrão",
+          niveis2.get(3) == "Desejável", f"{niveis2}")
+    checa("renomear numa organização não vaza para a outra",
+          niveis2.get(3) != "Conforto (renomeado)", f"nivel 3 da outra: {niveis2.get(3)}")
+
+    c2 = Cliente(base)
+    c2.post("/login", {"organizacao": "outra-clinica", "email": "outra@ex.com", "senha": "senha1234"})
+    _, html2 = c2.get("/configuracoes/importancia")
+    checa("a outra organização vê a sua própria tabela",
+          "Desejável" in html2 and "Conforto (renomeado)" not in html2)
+
     token = c.csrf("/configuracoes/importancia")
     c.post("/configuracoes/importancia/restaurar", {"csrf_token": token})
     _, html = c.get("/configuracoes/importancia")

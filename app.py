@@ -86,7 +86,7 @@ def injetar_csrf_e_dados_globais():
         "csrf_token": lambda: session["csrf_token"],
         "esfera_filtro": esfera_atual,
         "tenant_nome": session.get("tenant_nome", ""),
-        "niveis_importancia": database.listar_niveis_importancia(),
+        "niveis_importancia": database.listar_niveis_importancia(tenant_atual()) if tenant_atual() else [],
         "estilo_nivel": calculos.ESTILO_NIVEL,
         "nao_classificado": calculos.NAO_CLASSIFICADO
     }
@@ -460,8 +460,8 @@ def tabela_importancia():
     eles se chamam e como são explicados."""
     return render_template(
         "tabela_importancia.html",
-        niveis=database.listar_niveis_importancia(),
-        uso_por_nivel=database.contar_lancamentos_por_nivel(),
+        niveis=database.listar_niveis_importancia(tenant_atual()),
+        uso_por_nivel=database.contar_lancamentos_por_nivel(tenant_atual()),
         sucesso=request.args.get("sucesso"),
     )
 
@@ -477,7 +477,7 @@ def editar_nivel_importancia(nivel):
         return redirect(url_for("tabela_importancia", sucesso="O nome do nível não pode ficar em branco."))
 
     database.atualizar_nivel_importancia(
-        nivel, nome,
+        tenant_atual(), nivel, nome,
         request.form.get("apelido", "").strip(),
         request.form.get("significado", "").strip(),
         request.form.get("exemplo_empresa", "").strip(),
@@ -490,7 +490,7 @@ def editar_nivel_importancia(nivel):
 @app.route("/configuracoes/importancia/restaurar", methods=["POST"])
 @admin_required
 def restaurar_tabela_importancia():
-    database.restaurar_niveis_importancia_padrao()
+    database.restaurar_niveis_importancia_padrao(tenant_atual())
     return redirect(url_for("tabela_importancia", sucesso="Tabela restaurada para o padrão."))
 
 
@@ -538,7 +538,7 @@ def exportar_lancamentos(tipo):
         tenant_atual(), tipo=tipo, esfera=esfera_filtro, mes_ano=mes_ano
     )
 
-    nomes_niveis = calculos.nomes_dos_niveis()
+    nomes_niveis = calculos.nomes_dos_niveis(tenant_atual())
     colunas = ["Vencimento", "Descrição", "Categoria", "Esfera", "Valor",
                "Status", "Forma de Pagamento", "Data de Pagamento", "Observações"]
     # A classificação de importância só existe para despesas.
