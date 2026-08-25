@@ -1,7 +1,7 @@
 # 📊 Documentação: Sistema Financeiro (Gestão Financeira — Empresa & Casa)
 
-> Atualizado em 2026-08-24 a partir do código real (`app.py`, `database.py`, `calculos.py`, `emailer.py`, `templates/`).
-> A versão anterior deste documento era de 2026-08-10 e descrevia o sistema **antes** do multi-tenancy — afirmava que "não há isolamento multi-tenant hoje" e que o webhook não tinha autenticação. Ambos já foram implementados. Este documento substitui aquele conteúdo.
+> Atualizado em 2026-08-25 a partir do código real (`app.py`, `database.py`, `calculos.py`, `emailer.py`, `templates/`).
+> Cópia única: a duplicata que existia em `Agentes/` foi apagada em 25/08/2026 — duas cópias do mesmo documento é a receita para uma ficar velha sem ninguém notar.
 
 Sistema web (Flask + SQLite) de controle de contas a pagar e a receber, organizado em **duas dimensões independentes**:
 
@@ -55,6 +55,8 @@ Organizações (clínicas) que usam a plataforma.
 | `ativo` | INTEGER | 0 bloqueia o login de todos os usuários da organização |
 | `criado_em` | TEXT | `datetime('now')` |
 | `api_token` | TEXT UNIQUE | token do webhook (ver §5); gerado na criação e regenerável pelo admin |
+| `integracao_ativa` | INTEGER | 0/1 — a organização recebe lançamentos de um sistema externo? Ver §5.3 |
+| `data_inicio` | TEXT | `AAAA-MM-DD` — antes dela nada entra no caixa e nenhum mês é navegável. Ver §3.7 |
 
 ### 2.2 `usuarios`
 
@@ -101,7 +103,38 @@ Tabela central: cada linha é uma despesa (Pagar) ou receita (Receber). **Não h
 | `recorrente` | INTEGER | 0/1 — derivado automaticamente de `frequencia_recorrencia` |
 | `frequencia_recorrencia` | TEXT | `'Nenhuma'`, `'Mensal'`, `'Quinzenal'`, `'Semanal'` |
 | `observacoes` | TEXT | também marca a origem de integração (ver §5) |
-| `importancia` | TEXT | `'Imprescindível'`, `'Necessário'`, `'Supérfluo'`, `'Impulso'` ou NULL (ver §3.6) |
+| `importancia` | TEXT | **LEGADO** — guardava o nome do nível como texto. Nada mais lê; mantida como rede de segurança da conversão feita em 25/08/2026 |
+| `importancia_nivel` | INTEGER | 1 a 4, ou NULL. É o número do nível, não o nome — ver §3.5 |
+
+### 2.5 `niveis_importancia`
+A escala de classificação de gastos, **uma por organização**.
+
+| Campo | Tipo | Observação |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `tenant_id` | INTEGER FK → `tenants.id` | |
+| `nivel` | INTEGER | 1 a 4 — **a chave estável**, é ela que `lancamentos.importancia_nivel` guarda |
+| `nome` | TEXT | "Indispensável", "Importante"… — editável |
+| `apelido` | TEXT | "Crítico", "Estratégico"… |
+| `significado` | TEXT | o que o nível quer dizer na prática |
+| `exemplo_empresa` / `exemplo_casa` | TEXT | exemplos que ajudam a classificar |
+
+`UNIQUE (tenant_id, nivel)`. Organização nova nasce com os quatro níveis padrão (`NIVEIS_IMPORTANCIA_PADRAO` em `database.py`), e ajustá-los numa organização não afeta as outras.
+
+**Por que o nível é número e não texto**: se o lançamento guardasse o nome, renomear um nível deixaria órfão todo gasto classificado com o nome antigo. Guardando o número, o nome vira só rótulo e a escala fica editável sem risco.
+
+### 2.6 `saldos_iniciais`
+Ponto de partida do caixa de cada esfera.
+
+| Campo | Tipo | Observação |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `tenant_id` | INTEGER FK → `tenants.id` | |
+| `esfera` | TEXT | `'Empresa'` ou `'Casa'` — contas bancárias diferentes |
+| `valor` | REAL | quanto havia em caixa na data de referência |
+| `data_referencia` | TEXT | `AAAA-MM-DD`; na prática igual ao `tenants.data_inicio` |
+
+`UNIQUE (tenant_id, esfera)`.
 
 ---
 
@@ -114,7 +147,11 @@ O `status` salvo no banco é só `Pendente`/`Pago`/`Recebido`. A tela `/receber`
 - **Atrasado**: `vencimento` anterior a hoje e ainda não recebido.
 - **No Prazo**: vencimento hoje ou futuro e ainda não recebido.
 
-Itens atrasados **não são listados individualmente** — são somados em uma única linha consolidada no topo ("⚠️ Total de Receitas em Atraso"), com `id = "atraso_consolidado"` e a observação informando quantas contas foram agrupadas.
+Itens atrasados **vindos da integração** não são listados individualmente: são somados numa única linha no topo ("⚠️ Total de Receitas em Atraso"), com `id = "atraso_consolidado"`. Essa linha leva o selo "Somatório" — ela não vem de lugar nenhum, é calculada pela própria tela.
+
+**Recebível atrasado lançado à mão continua aparecendo sozinho**, editável como qualquer outro. Antes tudo era consolidado, e o efeito era perverso: um lançamento manual vencido sumia da lista e não havia como corrigir nem excluir (corrigido em 25/08/2026, achado pela Lois em uso real). A consolidação só faz sentido para as linhas da clínica, que se acumulam mês a mês.
+
+Se a organização não usa integração (§5.3), nada é consolidado e nada é somente leitura.
 
 ### 3.2 Esfera (Empresa / Casa / Todas)
 Filtro guardado na sessão (`session["esfera_filtro"]`), trocado via `/trocar-esfera/<esfera>`. É uma lente de visualização sobre os dados **da organização atual** — não é fronteira de segurança. O isolamento real é o `tenant_id`.
@@ -132,26 +169,59 @@ Ambas evitam duplicidade comparando a chave `(descrição, tipo, esfera, valor, 
 
 ### 3.5 Importância do gasto
 
-Cada conta a pagar pode ser classificada em uma escala ordenada do essencial ao evitável, definida em `calculos.NIVEIS_IMPORTANCIA`:
+Cada conta a pagar pode ser classificada numa escala ordenada do essencial ao evitável. Os **quatro níveis são fixos**; o que se edita é como eles se chamam e como são explicados (tela em ⚙️ → Tabela de Importância, restrita a admin de plataforma).
 
-| Nível | Sentido |
-|---|---|
-| **Imprescindível** | aluguel, luz, água, comida — cortar quebra alguma coisa |
-| **Necessário** | insumos, transporte, plano — preciso, mas há margem de negociação |
-| **Supérfluo** | escolhi ter, sabendo que era extra |
-| **Impulso** | comprei sem planejar |
+Escala padrão, definida com a Lois em 25/08/2026:
 
-`calcular_gastos_por_importancia(tenant_id, esfera, mes_ano)` agrupa as despesas do mês por nível e devolve os totais, as fatias percentuais, e o número que motivou o recurso: **quanto do gasto era evitável** (Supérfluo + Impulso).
+| Nível | Nome | Significado |
+|:---:|---|---|
+| 1 | **Indispensável** *(Crítico)* | Sobrevivência. Sem isso o negócio para ou a vida básica é comprometida |
+| 2 | **Importante** *(Estratégico)* | Traz retorno, mas o valor pode ser negociado numa crise |
+| 3 | **Desejável** *(Conforto)* | Melhora a experiência, não é vital. Primeira linha de corte |
+| 4 | **Evitável** *(Impulso)* | Gasto sem planejamento, sem retorno. Desperdício |
+
+A **linha de corte** fica entre o 2 e o 3. `calcular_gastos_por_importancia` agrupa as despesas do mês por nível e devolve quanto **dava para cortar** — a soma dos níveis 3 e 4 (`NIVEIS_CORTAVEIS`).
+
+O relatório não chama isso de "evitável" de propósito: esse é o nome do nível 4, e dizer "X% foi evitável" somando dois níveis, um deles chamado Evitável, seria ambíguo.
 
 Dois cuidados na regra:
 
-- O percentual evitável é calculado sobre o total **já classificado**, não sobre o total do mês. Dizer "12% foi evitável" quando metade das despesas não tem classificação seria enganoso — por isso o dashboard também mostra quanto ainda falta classificar.
-- Lançamentos sem classificação (todos os anteriores à migração) aparecem como "Não classificado" e nunca recebem um nível por chute.
+- O percentual é calculado sobre o total **já classificado**, não sobre o mês inteiro. Dizer "12% dava para cortar" com metade das despesas sem classificação seria enganoso — por isso o dashboard também mostra quanto falta classificar.
+- Lançamentos sem classificação aparecem como "Não classificado" e nunca recebem um nível por chute.
 
-A classificação é **só para despesas** — não existe em Contas a Receber. Recorrências herdam o nível do lançamento de origem.
+A classificação é **só para despesas**. Recorrências herdam o nível da origem. No dashboard, clicar numa faixa da barra ou num item da legenda leva para Contas a Pagar filtrado por aquele nível (`/pagar?nivel=N`, ou `nivel=sem` para os não classificados).
 
 ### 3.6 Resumo Financeiro (Dashboard `/`)
 `calcular_resumo_financeiro(tenant_id, esfera, mes_ano)` retorna, para o mês selecionado: total pago/atrasado/a vencer de Pagar e de Receber, **saldo atual** (recebido − pago) e **saldo projetado** (receber total − pagar total). `calcular_despesas_por_categoria` agrupa despesas do mês por categoria para o gráfico. `dias_uteis_restantes_no_mes` conta dias úteis (seg–sex) restantes no mês corrente.
+
+### 3.7 Saldo de caixa que atravessa o mês
+
+`calcular_saldo_do_mes(tenant_id, esfera, mes_ano)` devolve `saldo_inicial_periodo`, `entrou`, `saiu` e `saldo_final` — o extrato do mês que o dashboard mostra.
+
+Três coisas separam esse cálculo do `calcular_resumo_financeiro`:
+
+1. **Atravessa a virada.** O saldo com que um mês fecha é o ponto de partida do seguinte. Antes, cada mês era uma fotografia isolada e o saldo nunca refletia a posição real.
+2. **É regime de caixa.** Conta pela data em que o dinheiro se moveu — `COALESCE(data_pagamento, vencimento)` — e só lançamentos efetivados. As listagens continuam filtrando por vencimento; são lentes diferentes. Antes o saldo misturava as duas (filtrava por vencimento, somava por status), então uma conta que vencia em julho e era paga em agosto contava como saída de julho.
+3. **É por esfera.** Empresa e Casa são contas bancárias diferentes; "Todas" soma as duas.
+
+O `COALESCE` existe porque lançamentos vindos do webhook chegam com status `Pago` mas sem `data_pagamento` — sem o fallback eles sumiriam do saldo.
+
+**A porta para regime de competência fica aberta**: a escolha da data vive num lugar só, `database._BASES_DE_DATA`, parametrizada em `somar_movimentacoes(..., base="caixa"|"competencia")`. Hoje só `caixa` é usado; o outro ramo existe como seam, sem tela nem cálculo. Quando a visão for pedida, o trabalho é a tela, não reescrever consulta espalhada.
+
+### 3.8 Data de início do sistema
+
+`tenants.data_inicio` marca quando a organização passou a usar o sistema. Antes dela:
+
+- **nada entra no caixa** — inclusive receitas que a clínica tenha sincronizado de meses anteriores;
+- **nenhum mês é navegável** no painel, em contas a pagar ou a receber. A rota trava (`_mes_navegavel` em `app.py`) e o seletor de mês ganha um `min`, então não dá para chegar lá nem pela URL.
+
+Os lançamentos anteriores **continuam no banco**, intactos. Só deixam de ser considerados e exibidos — mover a data para trás faz tudo voltar a contar.
+
+Existe porque reconstruir meses passados exigiria conferir conta por conta. A Lois decidiu em 25/08/2026 começar limpo em 01/08/2026 em vez de arrastar um histórico pela metade.
+
+Organização sem data definida não muda de comportamento: nada trava e o cálculo soma desde o primeiro lançamento.
+
+Configuração em ⚙️ → Início do Sistema: primeiro a data, que governa tudo, depois quanto havia em cada conta naquele dia.
 
 ---
 
@@ -188,11 +258,15 @@ Configuração do email em `.env` (ver `.env.example`): `GMAIL_USER` e `GMAIL_AP
 
 `POST /api/v1/receber/webhook` — cria ou atualiza um lançamento de `Receber` na esfera `Empresa`.
 
-**Autenticação**: header `X-Api-Token` com o `api_token` da organização. Token inválido, ausente ou de organização inativa → `401`. O token define em qual tenant o lançamento é gravado — não há tenant no corpo da requisição.
+**Autenticação**: header `X-Api-Token` com o `api_token` da organização. Token inválido ou ausente → `401`; organização sem integração ligada → `403` (ver §5.3). O token define em qual tenant o lançamento é gravado — não há tenant no corpo da requisição.
+
+**Validação do corpo** (25/08/2026): `valor` precisa ser numérico e `vencimento`, se vier, precisa estar em `AAAA-MM-DD`. Fora disso, `400` com o campo problemático citado.
+
+Isso não é preciosismo. O sistema inteiro assume `AAAA-MM-DD` e as listagens filtram com `strftime('%Y-%m', vencimento)`, que devolve `NULL` para qualquer outro formato — uma receita gravada como `"31/12/2026"` ficava no banco e **não aparecia em nenhuma tela mensal**. Dinheiro invisível é pior que dinheiro errado: ninguém procura o que não sabe que existe.
 
 **Idempotência**: o campo `referencia_id` é gravado em `observacoes` como a tag `ID Ref: {referencia_id}`. Em chamadas seguintes, `buscar_lancamento_por_referencia` localiza o lançamento existente e o **atualiza** em vez de duplicar (`201` na criação, `200` na atualização).
 
-**Somente leitura na UI**: lançamentos cujo `observacoes` contém `"ID Ref:"` têm edição, exclusão e troca de status bloqueados na interface — a fonte da verdade é o sistema de origem.
+**Somente leitura**: lançamentos com `"ID Ref:"` têm edição, exclusão e troca de status bloqueados — na interface **e nas rotas**, não só no template. A fonte da verdade é o sistema de origem. Vale apenas quando a organização usa integração (§5.3).
 
 ### 5.1 Limpeza — `POST /api/v1/receber/limpar-clinica`
 
@@ -211,6 +285,22 @@ Desde 25/08/2026 são três tipos de linha, calculados pelo Painel Financeiro da
 | `clinic_resumo_atrasado_total` | Atraso **acumulado**, uma linha só |
 
 O atraso não é quebrado por mês de propósito: a clínica o trata como um montante que se arrasta, não como algo que pertence a um mês. O formato anterior (uma linha de atraso por mês) era invenção da integração e produzia totais que não batiam com a tela da clínica.
+
+### 5.3 A integração é opcional, por organização
+
+`tenants.integracao_ativa` decide se a organização recebe lançamentos de um sistema externo. Marcável em ⚙️ → Organizações, junto do token de API.
+
+| | **Ligada** | **Desligada** |
+|---|---|---|
+| Lançamentos com `ID Ref:` | somente leitura | editáveis à mão |
+| Atrasados | consolidados numa linha | um por um, como na esfera Casa |
+| Webhook | aceita | responde **403**, mesmo com token válido |
+
+Token válido não basta de propósito: se a organização não usa integração, um envio externo criaria linhas que ninguém pediu e que ficariam travadas.
+
+A verificação vive num helper só — `_lancamento_da_integracao` em `app.py` — em vez de espalhada pelas rotas e pelo template.
+
+Organização nova nasce **desligada**. A migração liga para quem já tinha lançamento vindo da clínica: desligar algo que já funcionava seria quebrar produção em silêncio.
 
 ---
 
@@ -234,6 +324,7 @@ O atraso não é quebrado por mês de propósito: a clínica o trata como um mon
 | `/receber` + `/novo`, `/<id>/editar`, `/<id>/toggle-status`, `/<id>/excluir` | CRUD de Contas a Receber (bloqueado para itens vindos do webhook) |
 | `/categorias` + `/nova`, `/<id>/editar`, `/<id>/excluir` | CRUD de categorias |
 | `/gerar-recorrencias` | Dispara a geração de recorrentes para um mês |
+| `/exportar/<tipo>` | Baixa os lançamentos do mês em CSV. Respeita o filtro de esfera e, em Pagar, o filtro de nível. Separador `;`, vírgula decimal e BOM `utf-8-sig` — é o que faz o arquivo abrir certo no Excel em português |
 
 ### Administração de plataforma (`@admin_required`)
 | Rota | Descrição |
@@ -246,6 +337,16 @@ O atraso não é quebrado por mês de propósito: a clínica o trata como um mon
 | `/admin/tenants/<id>/usuarios/<id>/editar`, `/excluir`, `/alternar-admin` | Gestão de usuários |
 | `/admin/tenants/<id>/gerar-token` | Regenera o `api_token` do webhook |
 
+### Configurações (⚙️ no canto superior direito)
+| Rota | Descrição | Quem acessa |
+|---|---|---|
+| `/categorias` | CRUD de categorias | qualquer usuário |
+| `/configuracoes/saldo-inicial` | Data de início e saldo de cada esfera | qualquer usuário |
+| `/configuracoes/importancia` | Tabela de importância, editável | só admin |
+| `/admin/tenants` | Organizações | só admin |
+
+O menu principal ficou só com Dashboard, Contas a Pagar e Contas a Receber (25/08/2026); o resto desceu para o dropdown da engrenagem, agrupado em "Minha conta" e "Configurações".
+
 ### API
 | Rota | Descrição |
 |---|---|
@@ -257,14 +358,36 @@ O atraso não é quebrado por mês de propósito: a clínica o trata como um mon
 
 1. **`debug=True` só afeta o ambiente local.** `app.run(port=5002, debug=True)` está dentro de `if __name__ == "__main__"`, e o PythonAnywhere roda via WSGI importando o objeto `app` — a linha não executa em produção. Só vale atenção se um dia o app for iniciado direto por `python app.py` num servidor exposto.
 
-2. **`excluir_lancamentos_detalhados_clinica(tenant_id)`** existe em `database.py` mas nenhuma rota a expõe — é uma função de limpeza em massa dos lançamentos vindos do webhook (`ID Ref: clinic_pg_%`), hoje só chamável manualmente.
+2. **Recuperação de senha e convite dependem do Gmail SMTP.** Sem `.env` configurado, o convite cai no fallback de exibir a senha na tela; vale confirmar o comportamento de `/esqueci-senha` no mesmo cenário.
 
-3. **Recuperação de senha e convite dependem do Gmail SMTP.** Sem `.env` configurado, o convite cai no fallback de exibir a senha na tela; vale confirmar o comportamento de `/esqueci-senha` no mesmo cenário.
+3. **`marcar_deve_trocar_senha()` existe mas nenhuma rota a chama.** Mantida de propósito: é metade do caminho para um botão "resetar senha deste usuário" em Organizações, que não existe e vai fazer falta.
+
+4. **Achados de auditoria levantados e ainda não corrigidos** (evidência em `plans/README.md`): excluir categoria em uso derruba a tela com `FOREIGN KEY constraint failed`; o contador de tentativas de login cresce sem limite na memória; o upload de foto não tem `MAX_CONTENT_LENGTH`.
+
+5. **A coluna legada `lancamentos.importancia`** (texto) não é mais lida. Mantida como rede de segurança da conversão para `importancia_nivel` feita em 25/08/2026 — vale apagar depois de a escala nova rodar alguns meses em dados reais.
 
 ---
 
-## 8. Documentos relacionados (`Agentes/`)
+## 8. Como verificar o sistema
 
-- `Plano_Multi_Tenancy.md` — o plano que originou a arquitetura descrita em §1.1 (já executado).
-- `Roteiro_Testes_Multi_Tenancy.md` — roteiro de verificação do isolamento entre organizações.
-- `Roteiro_Deploy_PythonAnywhere.md` — passos de publicação.
+**Não existe suíte de testes nem CI.** A rede de segurança é a skill `run-sistema-financeiro`, commitada em `.claude/skills/`:
+
+```bash
+./venv/bin/python .claude/skills/run-sistema-financeiro/driver.py smoke
+```
+
+Sobe o app num banco temporário, exercita 93 checagens e sai com 0 ou 1. **Nunca toca no `financeiro.db` real.** Rodar depois de qualquer mudança.
+
+`driver.py serve` sobe com dados de demonstração e imprime as credenciais, para inspeção no navegador.
+
+O `SKILL.md` ao lado documenta as armadilhas do projeto — entre elas que trocar `database.NOME_DO_BANCO` precisa vir **antes** de importar o app, e que o token CSRF é injetado por JavaScript e não existe como campo no HTML servido.
+
+---
+
+## 9. Documentos relacionados
+
+- `plans/` — planos de implementação com o histórico das decisões. `README.md` é o índice.
+- `Agentes/Roteiro_Deploy_PythonAnywhere.md` — passos de publicação.
+- `Agentes/Plano_Multi_Tenancy.md` e `Roteiro_Testes_Multi_Tenancy.md` — registro histórico da migração de agosto/2026, já executada.
+
+Deploy: `git push` no Mac → **`git pull`** no PythonAnywhere → **Reload** na aba Web.
