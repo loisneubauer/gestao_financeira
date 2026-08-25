@@ -469,6 +469,17 @@ def buscar_usuario_por_email(email, tenant_id=None):
     return usuario
 
 
+def buscar_usuario_por_id_global(id_usuario):
+    """Busca um usuário só pelo id, sem filtrar por tenant. Uso restrito ao
+    fluxo de redefinição de senha, onde o token carrega o id do usuário e o
+    tenant é lido do próprio registro encontrado. Em qualquer outro lugar use
+    buscar_usuario_por_id, que exige o tenant."""
+    conexao = conectar()
+    usuario = conexao.execute("SELECT * FROM usuarios WHERE id = ?", (id_usuario,)).fetchone()
+    conexao.close()
+    return usuario
+
+
 def buscar_usuario_por_id(tenant_id, id_usuario):
     conexao = conectar()
     usuario = conexao.execute(

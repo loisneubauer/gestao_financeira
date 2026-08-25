@@ -126,29 +126,92 @@ def tenant_atual():
     return session.get("tenant_id")
 
 
+def _normalizar_slug(texto):
+    """Reduz um texto ao formato de slug (minúsculo, só letras/números/hífen).
+    Usado tanto na administração quanto no login — assim quem digitar
+    "Laila Acupuntura" chega no mesmo lugar que "laila-acupuntura"."""
+    return re.sub(r"[^a-z0-9-]+", "-", texto.strip().lower()).strip("-")
+
+
 # ===== AUTENTICAÇÃO E PERFIL =====
 
+# Controle de força bruta no login. Guarda, por chave (IP + organização +
+# email), a lista de horários das tentativas que falharam. Fica só em memória:
+# reiniciar o app zera a contagem, e cada worker tem a sua própria — é uma
+# barreira contra tentativa automatizada, não uma trava infalível.
 _tentativas_login = {}
 LIMITE_TENTATIVAS_LOGIN = 5
 TEMPO_BLOQUEIO_MINUTOS = 15
 
 
+def _chave_tentativa(slug, email):
+    return f"{request.remote_addr or '?'}|{slug}|{email}"
+
+
+def _minutos_de_bloqueio_restantes(chave):
+    """Retorna quantos minutos ainda faltam para liberar a chave, ou 0 se ela
+    não está bloqueada. De quebra, descarta as tentativas já expiradas."""
+    limite = datetime.now() - timedelta(minutes=TEMPO_BLOQUEIO_MINUTOS)
+    tentativas = [t for t in _tentativas_login.get(chave, []) if t > limite]
+
+    if tentativas:
+        _tentativas_login[chave] = tentativas
+    else:
+        _tentativas_login.pop(chave, None)
+        return 0
+
+    if len(tentativas) < LIMITE_TENTATIVAS_LOGIN:
+        return 0
+
+    libera_em = min(tentativas) + timedelta(minutes=TEMPO_BLOQUEIO_MINUTOS)
+    return max(1, int((libera_em - datetime.now()).total_seconds() // 60) + 1)
+
+
+def _registrar_tentativa_falha(chave):
+    _tentativas_login.setdefault(chave, []).append(datetime.now())
+
+
+def _limpar_tentativas(chave):
+    _tentativas_login.pop(chave, None)
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    # O slug pode vir na URL (?org=laila-acupuntura), o que permite a cada
+    # organização ter seu próprio link de acesso já preenchido.
+    slug_url = _normalizar_slug(request.args.get("org", ""))
+
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         senha = request.form.get("senha", "")
+        slug = _normalizar_slug(request.form.get("organizacao", ""))
 
-        # A busca por email não é filtrada por tenant aqui de propósito: neste
-        # ponto ainda não sabemos a qual organização o usuário pertence. O
-        # tenant_id vem junto do registro do usuário encontrado.
-        usuario = database.buscar_usuario_por_email(email)
+        def recusar(mensagem):
+            return render_template("login.html", erro=mensagem, organizacao=slug, org_fixa=bool(slug_url))
+
+        if not slug:
+            return recusar("Informe a organização.")
+
+        chave = _chave_tentativa(slug, email)
+        minutos = _minutos_de_bloqueio_restantes(chave)
+        if minutos:
+            return recusar(
+                f"Muitas tentativas de login. Tente novamente em {minutos} minuto(s) "
+                "ou use 'Esqueci minha senha'."
+            )
+
+        tenant = database.buscar_tenant_por_slug(slug)
+        # A busca do usuário é sempre restrita ao tenant informado: o email é
+        # único por organização, então sem o slug uma conta duplicada em duas
+        # organizações ficaria inacessível.
+        usuario = database.buscar_usuario_por_email(email, tenant_id=tenant["id"]) if tenant else None
 
         if usuario and check_password_hash(usuario["senha_hash"], senha):
+            if not tenant["ativo"]:
+                return recusar("Esta organização está inativa. Fale com o administrador.")
+
+            _limpar_tentativas(chave)
             u_dict = dict(usuario)
-            tenant = database.buscar_tenant_por_id(u_dict["tenant_id"])
-            if not tenant or not tenant["ativo"]:
-                return render_template("login.html", erro="Esta organização está inativa. Fale com o administrador.")
 
             session.clear()
             session.permanent = True
@@ -166,10 +229,13 @@ def login():
                 return redirect(url_for("trocar_senha_obrigatoria"))
             return redirect(url_for("pagina_inicial"))
 
-        return render_template("login.html", erro="Email ou senha incorretos.")
+        # Mensagem propositalmente igual para organização, email ou senha
+        # errados: não confirma a quem tenta adivinhar se a conta existe.
+        _registrar_tentativa_falha(chave)
+        return recusar("Organização, email ou senha incorretos.")
 
     sucesso = request.args.get("sucesso")
-    return render_template("login.html", sucesso=sucesso)
+    return render_template("login.html", sucesso=sucesso, organizacao=slug_url, org_fixa=bool(slug_url))
 
 
 @app.route("/logout")
@@ -275,28 +341,47 @@ def trocar_senha_obrigatoria():
 
 @app.route("/esqueci-senha", methods=["GET", "POST"])
 def esqueci_senha():
+    slug_url = _normalizar_slug(request.args.get("org", ""))
+
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
-        usuario = database.buscar_usuario_por_email(email)
+        slug = _normalizar_slug(request.form.get("organizacao", ""))
+
+        if not slug:
+            return render_template("esqueci_senha.html", erro="Informe a organização.", organizacao=slug, org_fixa=bool(slug_url))
+
+        tenant = database.buscar_tenant_por_slug(slug)
+        usuario = database.buscar_usuario_por_email(email, tenant_id=tenant["id"]) if tenant else None
+
         if usuario:
-            token = serializer.dumps(email, salt="recuperar-senha")
+            # O token guarda o id do usuário, não o email: o email é único
+            # apenas por organização, então um token por email redefiniria a
+            # senha da conta errada quando a mesma pessoa existe em duas.
+            token = serializer.dumps(str(usuario["id"]), salt="recuperar-senha")
             link_redefinicao = url_for("redefinir_senha", token=token, _external=True)
             return render_template("esqueci_senha.html", sucesso="Link de recuperação gerado com sucesso!", link_gerado=link_redefinicao)
-        return render_template("esqueci_senha.html", erro="Não encontramos nenhuma conta com esse e-mail.")
 
-    return render_template("esqueci_senha.html")
+        return render_template(
+            "esqueci_senha.html",
+            erro="Não encontramos nenhuma conta com esse e-mail nessa organização.",
+            organizacao=slug, org_fixa=bool(slug_url)
+        )
+
+    return render_template("esqueci_senha.html", organizacao=slug_url, org_fixa=bool(slug_url))
 
 
 @app.route("/redefinir-senha/<token>", methods=["GET", "POST"])
 def redefinir_senha(token):
     try:
-        email = serializer.loads(token, salt="recuperar-senha", max_age=1800)
+        id_usuario = serializer.loads(token, salt="recuperar-senha", max_age=1800)
     except (SignatureExpired, BadTimeSignature):
         return render_template("esqueci_senha.html", erro="O link de recuperação expirou. Solicite um novo.")
 
-    usuario = database.buscar_usuario_por_email(email)
+    usuario = database.buscar_usuario_por_id_global(id_usuario)
     if not usuario:
         return render_template("esqueci_senha.html", erro="Usuário não encontrado.")
+
+    email = usuario["email"]
 
     if request.method == "POST":
         nova_senha = request.form.get("nova_senha", "")
@@ -646,10 +731,6 @@ def gerar_recorrencias():
 
 
 # ===== ADMINISTRAÇÃO DE TENANTS (multi-tenancy) =====
-
-def _normalizar_slug(texto):
-    return re.sub(r"[^a-z0-9-]+", "-", texto.strip().lower()).strip("-")
-
 
 def _renderizar_admin_tenants(**kwargs):
     tenants = database.listar_tenants()

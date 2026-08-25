@@ -45,9 +45,23 @@
 
             <form method="POST" class="text-start">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if org_fixa %}
+                    <input type="hidden" name="organizacao" value="{{ organizacao }}">
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Organização</label>
+                        <div class="form-control bg-light text-muted">{{ organizacao }}</div>
+                    </div>
+                {% else %}
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Organização</label>
+                        <input type="text" name="organizacao" class="form-control" required autofocus
+                               value="{{ organizacao or '' }}" placeholder="nome-da-sua-clinica">
+                    </div>
+                {% endif %}
                 <div class="mb-3">
                     <label class="form-label font-weight-bold">E-mail Cadastrado</label>
-                    <input type="email" name="email" class="form-control" placeholder="exemplo@gmail.com" required autofocus>
+                    <input type="email" name="email" class="form-control" placeholder="exemplo@gmail.com" required
+                           {% if org_fixa %}autofocus{% endif %}>
                 </div>
                 <button type="submit" class="btn btn-primary w-100 fw-bold py-2 mb-2" style="background-color: #6B4E8E; border-color: #6B4E8E;">Gerar Link de Recuperação</button>
                 <a href="{{ url_for('login') }}" class="btn btn-outline-secondary w-100">Voltar ao Login</a>

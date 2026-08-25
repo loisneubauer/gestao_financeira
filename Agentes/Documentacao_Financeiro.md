@@ -35,7 +35,8 @@ O isolamento é feito por `tenant_id` em **todas** as tabelas de dados, aplicado
 | Cookies `HttpOnly` + `SameSite=Lax`, sessão de 8h | ✅ ativo |
 | Cabeçalhos `X-Frame-Options: SAMEORIGIN` e `X-Content-Type-Options: nosniff` | ✅ ativo |
 | Autenticação do webhook por token de organização | ✅ ativo (ver §5) |
-| Limite de tentativas de login | ⚠️ **não implementado** — `_tentativas_login`, `LIMITE_TENTATIVAS_LOGIN` e `TEMPO_BLOQUEIO_MINUTOS` existem em `app.py:131-133` mas nenhuma rota os consulta |
+| Limite de tentativas de login | ✅ ativo — 5 falhas bloqueiam por 15 min, por (IP + organização + email). Estado em memória: reiniciar o app zera a contagem |
+| Mensagem de erro de login sem distinção | ✅ ativo — organização, email ou senha errados devolvem a mesma mensagem, sem revelar o que existe |
 
 ---
 
@@ -213,15 +214,11 @@ Configuração do email em `.env` (ver `.env.example`): `GMAIL_USER` e `GMAIL_AP
 
 ## 7. Pontos de atenção para a evolução
 
-1. **Login não pergunta a organização.** `buscar_usuario_por_email(email)` sem `tenant_id` faz `ORDER BY id ASC LIMIT 1`. Como o e-mail é único apenas *por organização*, se a mesma pessoa existir em duas organizações, só a de menor `id` consegue entrar — a segunda conta fica inacessível pelo login. Vale decidir: ou exigir e-mail globalmente único, ou pedir a organização no login.
+1. **`debug=True` só afeta o ambiente local.** `app.run(port=5002, debug=True)` está dentro de `if __name__ == "__main__"`, e o PythonAnywhere roda via WSGI importando o objeto `app` — a linha não executa em produção. Só vale atenção se um dia o app for iniciado direto por `python app.py` num servidor exposto.
 
-2. **Limite de tentativas de login não está ativo.** As constantes existem mas não são usadas. Hoje não há proteção contra tentativa de senha por força bruta.
+2. **`excluir_lancamentos_detalhados_clinica(tenant_id)`** existe em `database.py` mas nenhuma rota a expõe — é uma função de limpeza em massa dos lançamentos vindos do webhook (`ID Ref: clinic_pg_%`), hoje só chamável manualmente.
 
-3. **`debug=True` em produção é perigoso.** `app.run(port=5002, debug=True)` expõe o console interativo do Werkzeug. Ver `Agentes/Roteiro_Deploy_PythonAnywhere.md` para o deploy.
-
-4. **`excluir_lancamentos_detalhados_clinica(tenant_id)`** existe em `database.py` mas nenhuma rota a expõe — é uma função de limpeza em massa dos lançamentos vindos do webhook (`ID Ref: clinic_pg_%`), hoje só chamável manualmente.
-
-5. **Recuperação de senha e convite dependem do Gmail SMTP.** Sem `.env` configurado, o convite cai no fallback de exibir a senha na tela; vale confirmar o comportamento de `/esqueci-senha` no mesmo cenário.
+3. **Recuperação de senha e convite dependem do Gmail SMTP.** Sem `.env` configurado, o convite cai no fallback de exibir a senha na tela; vale confirmar o comportamento de `/esqueci-senha` no mesmo cenário.
 
 ---
 

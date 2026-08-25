@@ -38,14 +38,28 @@
 
             <form method="POST" action="{{ url_for('login') }}" class="text-start">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if org_fixa %}
+                    <input type="hidden" name="organizacao" value="{{ organizacao }}">
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Organização</label>
+                        <div class="form-control bg-light text-muted">{{ organizacao }}</div>
+                    </div>
+                {% else %}
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Organização</label>
+                        <input type="text" name="organizacao" class="form-control" required autofocus
+                               value="{{ organizacao or '' }}" placeholder="nome-da-sua-clinica">
+                    </div>
+                {% endif %}
                 <div class="mb-3">
                     <label class="form-label font-weight-bold">E-mail</label>
-                    <input type="email" name="email" class="form-control" required autofocus placeholder="seuemail@gmail.com">
+                    <input type="email" name="email" class="form-control" required
+                           {% if org_fixa %}autofocus{% endif %} placeholder="seuemail@gmail.com">
                 </div>
                 <div class="mb-3">
                     <div class="d-flex justify-content-between align-items-center mb-1">
                         <label class="form-label mb-0 font-weight-bold">Senha</label>
-                        <a href="{{ url_for('esqueci_senha') }}" class="small text-decoration-none text-muted">Esqueci minha senha</a>
+                        <a href="{{ url_for('esqueci_senha', org=organizacao) if organizacao else url_for('esqueci_senha') }}" class="small text-decoration-none text-muted">Esqueci minha senha</a>
                     </div>
                     <input type="password" name="senha" class="form-control" required>
                 </div>
