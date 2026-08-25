@@ -75,21 +75,21 @@ def semear(database):
         return date.today().replace(day=min(dia, 28)).isoformat()
 
     despesas = [
-        ("Aluguel do consultório", 2200.00, "Imprescindível", "Moradia", "Empresa", 5, "Pago"),
-        ("Energia elétrica", 340.50, "Imprescindível", "Moradia", "Casa", 10, "Pago"),
-        ("Agulhas e insumos", 620.00, "Necessário", "Insumos", "Empresa", 12, "Pago"),
-        ("Streaming (3 serviços)", 110.00, "Supérfluo", "Lazer", "Casa", 7, "Pago"),
-        ("Bolsa que vi na vitrine", 520.00, "Impulso", "Lazer", "Casa", 14, "Pago"),
+        ("Aluguel do consultório", 2200.00, 1, "Moradia", "Empresa", 5, "Pago"),
+        ("Energia elétrica", 340.50, 1, "Moradia", "Casa", 10, "Pago"),
+        ("Agulhas e insumos", 620.00, 2, "Insumos", "Empresa", 12, "Pago"),
+        ("Streaming (3 serviços)", 110.00, 3, "Lazer", "Casa", 7, "Pago"),
+        ("Bolsa que vi na vitrine", 520.00, 4, "Lazer", "Casa", 14, "Pago"),
         ("Manutenção do ar", 260.00, None, "Moradia", "Empresa", 25, "Pendente"),
     ]
-    for descricao, valor, importancia, categoria, esfera, dia, status in despesas:
+    for descricao, valor, nivel, categoria, esfera, dia, status in despesas:
         database.inserir_lancamento(tid, {
             "descricao": descricao, "tipo": "Pagar", "esfera": esfera,
             "categoria_id": categorias.get(categoria), "valor": valor,
             "vencimento": venc(dia), "status": status,
             "data_pagamento": venc(dia) if status == "Pago" else None,
             "forma_pagamento": "Pix", "frequencia_recorrencia": "Nenhuma",
-            "observacoes": "", "importancia": importancia,
+            "observacoes": "", "importancia_nivel": nivel,
         })
 
     for descricao, valor, dia, status in [
@@ -274,13 +274,13 @@ def cmd_smoke(args):
     status, html = c.get("/")
     checa("dashboard carrega", status == 200, f"status {status}")
     checa("dashboard traz o card de importância", "Importância dos Gastos" in html)
-    checa("dashboard calcula o gasto evitável", "evitável" in html)
+    checa("dashboard calcula quanto dava para cortar", "cortar" in html)
 
     print("\nContas a pagar", flush=True)
     status, html = c.get("/pagar")
     checa("listagem carrega", status == 200, f"status {status}")
     checa("mostra despesa semeada", "Aluguel do consultório" in html)
-    checa("mostra o nível de importância", "Imprescindível" in html)
+    checa("mostra o nível de importância", "Indispensável" in html)
 
     token = c.csrf("/pagar")
     status, _ = c.post("/pagar/novo", {
@@ -288,13 +288,13 @@ def cmd_smoke(args):
         "esfera": "Casa", "valor": "99.90",
         "vencimento": date.today().isoformat(), "status": "Pendente",
         "forma_pagamento": "Pix", "frequencia_recorrencia": "Nenhuma",
-        "importancia": "Impulso", "observacoes": "",
+        "importancia_nivel": "4", "observacoes": "",
     })
     checa("cria uma despesa nova", status == 302, f"status {status}")
 
     _, html = c.get("/pagar")
     checa("a despesa nova aparece na lista", "Despesa criada pelo driver" in html)
-    checa("com a importância escolhida", "Impulso" in html)
+    checa("com a importância escolhida", "Evitável" in html)
 
     checa("POST sem CSRF é recusado",
           c.post("/pagar/novo", {"descricao": "sem token", "valor": "1",
@@ -310,7 +310,7 @@ def cmd_smoke(args):
         "esfera": "Casa", "valor": "abc",
         "vencimento": date.today().isoformat(), "status": "Pendente",
         "forma_pagamento": "Pix", "frequencia_recorrencia": "Nenhuma",
-        "importancia": "", "observacoes": "",
+        "importancia_nivel": "", "observacoes": "",
     })
     checa("valor não numérico não derruba a rota (sem 500)", status != 500, f"status {status}")
     checa("valor não numérico não grava lançamento",
@@ -322,7 +322,7 @@ def cmd_smoke(args):
         "esfera": "Casa", "valor": "77.50",
         "vencimento": date.today().isoformat(), "status": "Pendente",
         "forma_pagamento": "Pix", "frequencia_recorrencia": "Nenhuma",
-        "importancia": "", "observacoes": "",
+        "importancia_nivel": "", "observacoes": "",
     })
     _, html = c.get("/pagar")
     checa("valor válido continua gravando (sem regressão)",
@@ -390,6 +390,30 @@ def cmd_smoke(args):
 
     status, corpo_invalido = c.get("/exportar/Qualquer")
     checa("tipo inválido não devolve CSV", "Vencimento;" not in corpo_invalido)
+
+    print("\nTabela de importância", flush=True)
+    status, html = c.get("/configuracoes/importancia")
+    checa("tela da tabela abre para admin", status == 200, f"status {status}")
+    for esperado in ["Indispensável", "Importante", "Desejável", "Evitável"]:
+        checa(f"mostra o nível {esperado}", esperado in html)
+
+    token = c.csrf("/configuracoes/importancia")
+    status, _ = c.post("/configuracoes/importancia/3/editar", {
+        "csrf_token": token, "nome": "Conforto (renomeado)", "apelido": "Teste",
+        "significado": "s", "exemplo_empresa": "e", "exemplo_casa": "c",
+    })
+    checa("renomear um nível funciona", status == 302, f"status {status}")
+
+    _, html = c.get("/pagar")
+    checa("o novo nome aparece na listagem", "Conforto (renomeado)" in html)
+    checa("e nenhum lançamento perdeu a classificação",
+          len([l for l in database.listar_lancamentos(tid, tipo="Pagar")
+               if l["importancia_nivel"] == 3]) > 0)
+
+    token = c.csrf("/configuracoes/importancia")
+    c.post("/configuracoes/importancia/restaurar", {"csrf_token": token})
+    _, html = c.get("/configuracoes/importancia")
+    checa("restaurar padrão devolve o nome original", "Desejável" in html)
 
     print("\nAdministração", flush=True)
     status, html = c.get("/admin/tenants")

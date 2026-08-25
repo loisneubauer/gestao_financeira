@@ -70,6 +70,93 @@ def _migrar_usuarios_para_multi_tenant(conexao, tenant_id_padrao):
     conexao.execute("DROP TABLE usuarios_legado")
 
 
+# Escala padrão de classificação de gastos, definida com a Lois em 25/08/2026.
+# Vai do que não se corta ao que não deveria ter acontecido; a "linha de corte"
+# num mês apertado fica entre o nível 2 e o 3.
+NIVEIS_IMPORTANCIA_PADRAO = [
+    (1, "Indispensável", "Crítico",
+     "Sobrevivência. Sem isso, o negócio para de funcionar ou sua vida básica é comprometida. Não pode ser cortado.",
+     "Aluguel, energia elétrica, impostos, licenças.",
+     "Moradia, alimentação básica, plano de saúde."),
+    (2, "Importante", "Estratégico",
+     "Traz retorno ou grande melhoria, mas o valor pode ser ajustado ou negociado se houver crise.",
+     "Marketing, atualização de equipamentos, softwares bons.",
+     "Educação, academia, manutenções preventivas."),
+    (3, "Desejável", "Conforto",
+     "Melhora a experiência, mas não é vital. É a primeira linha de corte em meses de aperto financeiro.",
+     "Café premium para pacientes, decoração extra.",
+     "Streaming, restaurantes, viagens de lazer."),
+    (4, "Evitável", "Impulso",
+     "Gasto sem planejamento, emocional ou que não trouxe retorno nem utilidade real. Desperdício.",
+     "Compras de materiais em excesso, multas por atraso.",
+     "Compras por impulso, assinaturas não utilizadas."),
+]
+
+
+def _semear_niveis_importancia(conexao):
+    """Cria os 4 níveis padrão se ainda não existirem. Nunca sobrescreve o que
+    já está lá — a tabela é editável, e uma edição da Lois não pode ser desfeita
+    no próximo reinício do app."""
+    for nivel, nome, apelido, significado, ex_empresa, ex_casa in NIVEIS_IMPORTANCIA_PADRAO:
+        conexao.execute("""
+            INSERT OR IGNORE INTO niveis_importancia
+                (nivel, nome, apelido, significado, exemplo_empresa, exemplo_casa)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (nivel, nome, apelido, significado, ex_empresa, ex_casa))
+
+
+# ===== NÍVEIS DE IMPORTÂNCIA =====
+
+def listar_niveis_importancia():
+    """Devolve os níveis do mais essencial (1) ao mais evitável (4)."""
+    conexao = conectar()
+    niveis = conexao.execute(
+        "SELECT * FROM niveis_importancia ORDER BY nivel ASC"
+    ).fetchall()
+    conexao.close()
+    return niveis
+
+
+def atualizar_nivel_importancia(nivel, nome, apelido, significado, exemplo_empresa, exemplo_casa):
+    """Edita o rótulo e os textos de um nível. O número do nível nunca muda —
+    é ele que os lançamentos guardam."""
+    conexao = conectar()
+    conexao.execute("""
+        UPDATE niveis_importancia
+           SET nome = ?, apelido = ?, significado = ?, exemplo_empresa = ?, exemplo_casa = ?
+         WHERE nivel = ?
+    """, (nome, apelido, significado, exemplo_empresa, exemplo_casa, nivel))
+    conexao.commit()
+    conexao.close()
+
+
+def restaurar_niveis_importancia_padrao():
+    """Volta os 4 níveis ao texto padrão. Usado pelo botão de restaurar."""
+    conexao = conectar()
+    for nivel, nome, apelido, significado, ex_empresa, ex_casa in NIVEIS_IMPORTANCIA_PADRAO:
+        conexao.execute("""
+            UPDATE niveis_importancia
+               SET nome = ?, apelido = ?, significado = ?, exemplo_empresa = ?, exemplo_casa = ?
+             WHERE nivel = ?
+        """, (nome, apelido, significado, ex_empresa, ex_casa, nivel))
+    conexao.commit()
+    conexao.close()
+
+
+def contar_lancamentos_por_nivel():
+    """Quantos lançamentos usam cada nível — mostrado na tela de edição para a
+    Lois saber o que está mexendo antes de renomear."""
+    conexao = conectar()
+    linhas = conexao.execute("""
+        SELECT importancia_nivel AS nivel, COUNT(*) AS total
+          FROM lancamentos
+         WHERE importancia_nivel IS NOT NULL
+      GROUP BY importancia_nivel
+    """).fetchall()
+    conexao.close()
+    return {linha["nivel"]: linha["total"] for linha in linhas}
+
+
 def _slug_a_partir_do_nome(nome):
     """Converte "Acupuntura Bem-estar" em "acupuntura-bem-estar".
     Tira acentos antes, para "São" virar "sao" e não "s-o"."""
@@ -161,8 +248,26 @@ def criar_tabelas():
             recorrente INTEGER DEFAULT 0, -- 1 = Sim, 0 = Não
             frequencia_recorrencia TEXT DEFAULT 'Nenhuma',
             observacoes TEXT,
-            importancia TEXT, -- 'Imprescindível', 'Necessário', 'Supérfluo', 'Impulso' ou NULL
+            importancia TEXT, -- LEGADO: guardava o nome do nível como texto.
+                              -- Substituída por importancia_nivel; mantida só
+                              -- como rede de segurança da migração.
+            importancia_nivel INTEGER, -- 1..4 (ver tabela niveis_importancia) ou NULL
             FOREIGN KEY (categoria_id) REFERENCES categorias (id)
+        )
+    """)
+
+    # Tabela de Níveis de Importância (classificação de gastos).
+    # O número do nível (1..4) é a chave estável — é ele que fica gravado em
+    # lancamentos.importancia_nivel. O nome é só rótulo e pode ser editado sem
+    # que nenhum lançamento já classificado se perca.
+    conexao.execute("""
+        CREATE TABLE IF NOT EXISTS niveis_importancia (
+            nivel INTEGER PRIMARY KEY,      -- 1 = mais essencial ... 4 = desperdício
+            nome TEXT NOT NULL,             -- "Indispensável"
+            apelido TEXT,                   -- "Crítico"
+            significado TEXT,               -- o que significa na prática
+            exemplo_empresa TEXT,
+            exemplo_casa TEXT
         )
     """)
 
@@ -201,6 +306,23 @@ def criar_tabelas():
     if _tabela_existe(conexao, "lancamentos") and not _coluna_existe(conexao, "lancamentos", "frequencia_recorrencia"):
         conexao.execute("ALTER TABLE lancamentos ADD COLUMN frequencia_recorrencia TEXT DEFAULT 'Nenhuma'")
         conexao.execute("UPDATE lancamentos SET frequencia_recorrencia = 'Mensal' WHERE recorrente = 1")
+
+    # Migração: lancamentos.importancia guardava o NOME do nível como texto
+    # ("Impulso"). Isso travava a escala: renomear um nível deixaria órfão todo
+    # lançamento gravado com o nome antigo. Agora grava o número do nível.
+    if _tabela_existe(conexao, "lancamentos") and not _coluna_existe(conexao, "lancamentos", "importancia_nivel"):
+        conexao.execute("ALTER TABLE lancamentos ADD COLUMN importancia_nivel INTEGER")
+        # A escala antiga tinha os mesmos 4 degraus, na mesma ordem.
+        for nome_antigo, nivel in [("Imprescindível", 1), ("Necessário", 2),
+                                   ("Supérfluo", 3), ("Impulso", 4)]:
+            conexao.execute(
+                "UPDATE lancamentos SET importancia_nivel = ? WHERE importancia = ?",
+                (nivel, nome_antigo)
+            )
+        # A coluna `importancia` (texto) fica no banco de propósito, como rede
+        # de segurança para conferir a conversão. Nada mais escreve nela.
+
+    _semear_niveis_importancia(conexao)
 
     # Migração: o slug automático "padrao" vira o nome real da organização,
     # já que agora ele é digitado na tela de login.
@@ -419,13 +541,13 @@ def inserir_lancamento(tenant_id, dados):
         INSERT INTO lancamentos (
             tenant_id, descricao, tipo, esfera, categoria_id, valor, vencimento,
             data_pagamento, status, forma_pagamento, recorrente, frequencia_recorrencia,
-            observacoes, importancia
+            observacoes, importancia_nivel
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         tenant_id, dados["descricao"], dados["tipo"], dados["esfera"], dados.get("categoria_id"),
         dados["valor"], dados["vencimento"], dados.get("data_pagamento"),
         dados.get("status", "Pendente"), dados.get("forma_pagamento"),
-        recorrente_val, freq, dados.get("observacoes"), dados.get("importancia")
+        recorrente_val, freq, dados.get("observacoes"), dados.get("importancia_nivel")
     ))
     conexao.commit()
     id_novo = cursor.lastrowid
@@ -442,13 +564,13 @@ def atualizar_lancamento(tenant_id, id_lancamento, dados):
         UPDATE lancamentos SET
             descricao = ?, tipo = ?, esfera = ?, categoria_id = ?, valor = ?,
             vencimento = ?, data_pagamento = ?, status = ?, forma_pagamento = ?,
-            recorrente = ?, frequencia_recorrencia = ?, observacoes = ?, importancia = ?
+            recorrente = ?, frequencia_recorrencia = ?, observacoes = ?, importancia_nivel = ?
         WHERE id = ? AND tenant_id = ?
     """, (
         dados["descricao"], dados["tipo"], dados["esfera"], dados.get("categoria_id"),
         dados["valor"], dados["vencimento"], dados.get("data_pagamento"),
         dados.get("status", "Pendente"), dados.get("forma_pagamento"),
-        recorrente_val, freq, dados.get("observacoes"), dados.get("importancia"),
+        recorrente_val, freq, dados.get("observacoes"), dados.get("importancia_nivel"),
         id_lancamento, tenant_id
     ))
     conexao.commit()

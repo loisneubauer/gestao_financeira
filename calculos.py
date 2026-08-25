@@ -3,14 +3,32 @@ from datetime import datetime, date, timedelta
 import database
 
 
-# Classificação do gasto, do mais essencial ao mais evitável. A ordem da lista
-# é a ordem de exibição em todo o sistema.
-NIVEIS_IMPORTANCIA = ["Imprescindível", "Necessário", "Supérfluo", "Impulso"]
+# Classificação do gasto, do mais essencial ao mais evitável. Os NOMES vivem no
+# banco (tabela niveis_importancia) e são editáveis; aqui ficam só o número do
+# nível — que é o que os lançamentos guardam — e a aparência de cada um.
+NIVEIS_VALIDOS = [1, 2, 3, 4]
 
-# Os dois últimos níveis são o que o relatório chama de "gasto evitável".
-NIVEIS_EVITAVEIS = ["Supérfluo", "Impulso"]
+# A "linha de corte" da escala: num mês apertado, é daqui para baixo que se
+# corta. Por isso o dashboard soma 3 + 4 e chama de gasto que dava para cortar
+# — e não de "evitável", que é o nome do nível 4 e significaria só ele.
+NIVEIS_CORTAVEIS = [3, 4]
 
 NAO_CLASSIFICADO = "Não classificado"
+
+ESTILO_NIVEL = {
+    1: {"cor": "#2E7D32", "icone": "bi-shield-check"},
+    2: {"cor": "#0277BD", "icone": "bi-check-circle"},
+    3: {"cor": "#EF6C00", "icone": "bi-emoji-smile"},
+    4: {"cor": "#C62828", "icone": "bi-lightning"},
+    None: {"cor": "#9E9E9E", "icone": "bi-question-circle"},
+}
+
+
+def nomes_dos_niveis():
+    """Mapa {nivel: nome} lido do banco, para rotular badges e relatórios.
+    Cai no número puro se algum nível sumir da tabela, em vez de estourar."""
+    nomes = {n["nivel"]: n["nome"] for n in database.listar_niveis_importancia()}
+    return {n: nomes.get(n, f"Nível {n}") for n in NIVEIS_VALIDOS}
 
 
 def _campo(registro, nome, padrao=None):
@@ -26,16 +44,6 @@ def _campo(registro, nome, padrao=None):
         valor = registro[nome]
         return padrao if valor is None else valor
     return padrao
-
-
-# Cor e ícone de cada nível, usados nos badges e no gráfico.
-ESTILO_IMPORTANCIA = {
-    "Imprescindível": {"cor": "#2E7D32", "icone": "bi-shield-check"},
-    "Necessário":     {"cor": "#0277BD", "icone": "bi-check-circle"},
-    "Supérfluo":      {"cor": "#EF6C00", "icone": "bi-emoji-smile"},
-    "Impulso":        {"cor": "#C62828", "icone": "bi-lightning"},
-    NAO_CLASSIFICADO: {"cor": "#9E9E9E", "icone": "bi-question-circle"},
-}
 
 
 def dias_uteis_restantes_no_mes(data_ref=None):
@@ -144,51 +152,54 @@ def calcular_despesas_por_categoria(tenant_id, esfera_filtro="Todas", mes_ano=No
 
 def calcular_gastos_por_importancia(tenant_id, esfera_filtro="Todas", mes_ano=None):
     """
-    Agrupa as despesas (Contas a Pagar) do mês pelo nível de importância, para
-    responder à pergunta que motivou o recurso: quanto do meu gasto era evitável?
+    Agrupa as despesas (Contas a Pagar) do mês pelo nível de importância.
 
     Retorna um dicionário com:
-      - 'niveis': lista ordenada de {nivel, valor, percentual, quantidade, cor, icone},
-        já incluindo os não classificados no fim (se houver);
+      - 'niveis': lista do nível 1 ao 4 com {nivel, nome, valor, quantidade,
+        percentual, cor, icone}, mais os não classificados no fim (se houver);
       - 'total': soma de todas as despesas do mês;
-      - 'evitavel' / 'percentual_evitavel': soma e fatia de Supérfluo + Impulso;
+      - 'cortavel' / 'percentual_cortavel': soma e fatia dos níveis 3 e 4 — o
+        que dava para cortar num mês apertado. Não se chama "evitável" porque
+        esse é o nome do nível 4, e significaria só ele;
       - 'classificado' / 'nao_classificado': quanto já foi classificado e quanto falta.
 
-    O percentual evitável é calculado sobre o total JÁ CLASSIFICADO — dizer que
-    "10% foi evitável" quando metade dos gastos não tem classificação seria
+    O percentual é calculado sobre o total JÁ CLASSIFICADO — dizer que "10%
+    dava para cortar" quando metade dos gastos não tem classificação seria
     enganoso.
     """
     if not mes_ano:
         mes_ano = date.today().strftime("%Y-%m")
 
     lancamentos = database.listar_lancamentos(tenant_id, tipo="Pagar", esfera=esfera_filtro, mes_ano=mes_ano)
+    nomes = nomes_dos_niveis()
 
-    somas = {nivel: 0.0 for nivel in NIVEIS_IMPORTANCIA}
-    somas[NAO_CLASSIFICADO] = 0.0
+    somas = {nivel: 0.0 for nivel in NIVEIS_VALIDOS}
+    somas[None] = 0.0
     quantidades = {nivel: 0 for nivel in somas}
 
     for l in lancamentos:
         valor = float(l["valor"] or 0)
-        nivel = _campo(l, "importancia")
-        if nivel not in NIVEIS_IMPORTANCIA:
-            nivel = NAO_CLASSIFICADO
+        nivel = _campo(l, "importancia_nivel")
+        if nivel not in NIVEIS_VALIDOS:
+            nivel = None
         somas[nivel] += valor
         quantidades[nivel] += 1
 
     total = sum(somas.values())
-    nao_classificado = somas[NAO_CLASSIFICADO]
+    nao_classificado = somas[None]
     classificado = total - nao_classificado
-    evitavel = sum(somas[n] for n in NIVEIS_EVITAVEIS)
+    cortavel = sum(somas[n] for n in NIVEIS_CORTAVEIS)
 
-    ordem = NIVEIS_IMPORTANCIA + ([NAO_CLASSIFICADO] if nao_classificado > 0 else [])
+    ordem = list(NIVEIS_VALIDOS) + ([None] if nao_classificado > 0 else [])
     niveis = [
         {
             "nivel": nivel,
+            "nome": nomes[nivel] if nivel else NAO_CLASSIFICADO,
             "valor": somas[nivel],
             "quantidade": quantidades[nivel],
             "percentual": (somas[nivel] / total * 100) if total else 0.0,
-            "cor": ESTILO_IMPORTANCIA[nivel]["cor"],
-            "icone": ESTILO_IMPORTANCIA[nivel]["icone"],
+            "cor": ESTILO_NIVEL[nivel]["cor"],
+            "icone": ESTILO_NIVEL[nivel]["icone"],
         }
         for nivel in ordem
     ]
@@ -196,8 +207,8 @@ def calcular_gastos_por_importancia(tenant_id, esfera_filtro="Todas", mes_ano=No
     return {
         "niveis": niveis,
         "total": total,
-        "evitavel": evitavel,
-        "percentual_evitavel": (evitavel / classificado * 100) if classificado else 0.0,
+        "cortavel": cortavel,
+        "percentual_cortavel": (cortavel / classificado * 100) if classificado else 0.0,
         "classificado": classificado,
         "nao_classificado": nao_classificado,
         "tem_classificacao": classificado > 0,
@@ -264,7 +275,7 @@ def gerar_recorrencias_do_mes(tenant_id, mes_destino_str):
                             "recorrente": 1,
                             "frequencia_recorrencia": freq,
                             "observacoes": orig["observacoes"],
-                            "importancia": _campo(orig, "importancia")
+                            "importancia_nivel": _campo(orig, "importancia_nivel")
                         }
                         database.inserir_lancamento(tenant_id, dados_novo)
                         chaves_existentes.add(chave)
@@ -295,7 +306,7 @@ def gerar_recorrencias_do_mes(tenant_id, mes_destino_str):
                 "recorrente": 1,
                 "frequencia_recorrencia": "Mensal",
                 "observacoes": orig["observacoes"],
-                "importancia": _campo(orig, "importancia")
+                "importancia_nivel": _campo(orig, "importancia_nivel")
             }
             database.inserir_lancamento(tenant_id, dados_novo)
             chaves_existentes.add(chave)

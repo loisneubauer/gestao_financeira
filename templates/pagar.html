@@ -53,7 +53,7 @@
                         {% set eh_recorrente = l.recorrente == 1 or (l.frequencia_recorrencia and l.frequencia_recorrencia != 'Nenhuma') %}
                         {% set freq = l.frequencia_recorrencia or ('Mensal' if eh_recorrente else 'Nenhuma') %}
                         {% set rank_freq = {'Semanal': 3, 'Quinzenal': 2, 'Mensal': 1, 'Nenhuma': 0}[freq] %}
-                        {% set rank_importancia = niveis_importancia.index(l.importancia) + 1 if l.importancia in niveis_importancia else 0 %}
+                        {% set rank_importancia = l.importancia_nivel or 0 %}
                         <tr class="{% if l.status == 'Pago' %}table-success opacity-75{% endif %}"
                             data-status="{{ l.status }}"
                             data-vencimento="{{ l.vencimento }}"
@@ -93,9 +93,9 @@
                             </td>
                             <td>{{ l.categoria_nome or '-' }}</td>
                             <td>
-                                {% if l.importancia in niveis_importancia %}
-                                    <span class="badge" style="background-color: {{ estilo_importancia[l.importancia].cor }};">
-                                        <i class="bi {{ estilo_importancia[l.importancia].icone }} me-1"></i>{{ l.importancia }}
+                                {% if l.importancia_nivel %}
+                                    <span class="badge" style="background-color: {{ estilo_nivel[l.importancia_nivel].cor }};">
+                                        <i class="bi {{ estilo_nivel[l.importancia_nivel].icone }} me-1"></i>{{ niveis_importancia | selectattr('nivel', 'equalto', l.importancia_nivel) | map(attribute='nome') | first }}
                                     </span>
                                 {% else %}
                                     <span class="small text-muted">—</span>
@@ -215,13 +215,13 @@
 
                     <div class="mb-3">
                         <label class="form-label font-weight-bold">Nível de Importância</label>
-                        <select name="importancia" class="form-select">
+                        <select name="importancia_nivel" class="form-select">
                             <option value="">Não classificado</option>
-                            {% for nivel in niveis_importancia %}
-                                <option value="{{ nivel }}" {% if l.importancia == nivel %}selected{% endif %}>{{ nivel }}</option>
+                            {% for n in niveis_importancia %}
+                                <option value="{{ n.nivel }}" {% if l.importancia_nivel == n.nivel %}selected{% endif %}>{{ n.nivel }} — {{ n.nome }}</option>
                             {% endfor %}
                         </select>
-                        <div class="form-text">Do essencial ao evitável — alimenta o relatório de gastos evitáveis.</div>
+                        <div class="form-text">Do indispensável ao evitável — alimenta o relatório do dashboard.</div>
                     </div>
 
                     <div class="mb-3">
@@ -320,13 +320,13 @@
 
                     <div class="mb-3">
                         <label class="form-label font-weight-bold">Nível de Importância</label>
-                        <select name="importancia" class="form-select">
+                        <select name="importancia_nivel" class="form-select">
                             <option value="">Não classificado</option>
-                            {% for nivel in niveis_importancia %}
-                                <option value="{{ nivel }}">{{ nivel }}</option>
+                            {% for n in niveis_importancia %}
+                                <option value="{{ n.nivel }}">{{ n.nivel }} — {{ n.nome }}</option>
                             {% endfor %}
                         </select>
-                        <div class="form-text">Do essencial ao evitável — alimenta o relatório de gastos evitáveis.</div>
+                        <div class="form-text">Do indispensável ao evitável — alimenta o relatório do dashboard.</div>
                     </div>
 
                     <div class="mb-3">

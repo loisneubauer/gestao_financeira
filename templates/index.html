@@ -154,19 +154,19 @@
             <p class="text-muted mb-1">Nenhuma despesa deste mês foi classificada ainda.</p>
             <p class="text-muted small mb-0">
                 Ao cadastrar ou editar uma conta a pagar, escolha o nível de importância —
-                é o que permite responder quanto do seu gasto era evitável.
+                é o que permite responder quanto do seu gasto dava para cortar.
             </p>
         </div>
     {% else %}
         <div class="card-body p-4">
             <div class="row align-items-center g-4">
                 <div class="col-md-4 text-center border-end">
-                    <div class="display-5 fw-bold {% if importancia.percentual_evitavel >= 25 %}text-danger{% elif importancia.percentual_evitavel >= 10 %}text-warning{% else %}text-success{% endif %}">
-                        {{ '%.0f' | format(importancia.percentual_evitavel) }}%
+                    <div class="display-5 fw-bold {% if importancia.percentual_cortavel >= 25 %}text-danger{% elif importancia.percentual_cortavel >= 10 %}text-warning{% else %}text-success{% endif %}">
+                        {{ '%.0f' | format(importancia.percentual_cortavel) }}%
                     </div>
-                    <div class="fw-semibold">do gasto era evitável</div>
+                    <div class="fw-semibold">do gasto dava para cortar</div>
                     <div class="small text-muted mt-1">
-                        {{ importancia.evitavel | moeda_br }} em supérfluo e impulso
+                        {{ importancia.cortavel | moeda_br }} em desejável e evitável
                     </div>
                     {% if importancia.nao_classificado > 0 %}
                         <div class="small text-muted fst-italic mt-2">
@@ -183,7 +183,7 @@
                             {% if n.valor > 0 %}
                                 <div class="progress-bar" role="progressbar"
                                      style="width: {{ n.percentual }}%; background-color: {{ n.cor }};"
-                                     title="{{ n.nivel }}: {{ n.valor | moeda_br }} ({{ '%.0f' | format(n.percentual) }}%)">
+                                     title="{{ n.nome }}: {{ n.valor | moeda_br }} ({{ '%.0f' | format(n.percentual) }}%)">
                                     {% if n.percentual >= 12 %}{{ '%.0f' | format(n.percentual) }}%{% endif %}
                                 </div>
                             {% endif %}
@@ -197,7 +197,7 @@
                                 <div class="d-flex justify-content-between align-items-center small py-1">
                                     <span>
                                         <i class="bi {{ n.icone }} me-1" style="color: {{ n.cor }};"></i>
-                                        {{ n.nivel }}
+                                        {{ n.nome }}
                                         <span class="text-muted">({{ n.quantidade }})</span>
                                     </span>
                                     <span class="fw-semibold">{{ n.valor | moeda_br }}</span>

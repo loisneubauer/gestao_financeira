@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block titulo %}Tabela de Importância — Gestão Financeira{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-4">
+    <div>
+        <h3 class="mb-1 fw-bold" style="color: #4A2E6E;">
+            <i class="bi bi-bullseye me-2"></i> Tabela de Importância
+        </h3>
+        <p class="text-muted small mb-0">
+            Como cada gasto é classificado. Os quatro níveis são fixos — o que você edita é como eles se chamam e como são explicados.
+        </p>
+    </div>
+    <form method="POST" action="{{ url_for('restaurar_tabela_importancia') }}" class="mt-2 mt-md-0"
+          onsubmit="return confirm('Restaurar os quatro níveis para o texto padrão? Os gastos já classificados não mudam.')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-counterclockwise me-1"></i> Restaurar padrão
+        </button>
+    </form>
+</div>
+
+{% if sucesso %}
+    <div class="alert alert-success">{{ sucesso }}</div>
+{% endif %}
+
+<div class="alert alert-light border d-flex align-items-start">
+    <i class="bi bi-info-circle me-2 mt-1 text-primary"></i>
+    <div class="small">
+        Renomear um nível é seguro: cada gasto guarda o <strong>número</strong> do nível, não o nome.
+        Se você trocar "Desejável" por outro nome, nenhum lançamento já classificado se perde.
+        <br>
+        A <strong>linha de corte</strong> fica entre o nível 2 e o 3 — o dashboard soma os níveis 3 e 4
+        para dizer quanto do gasto do mês dava para cortar.
+    </div>
+</div>
+
+<div class="card shadow-sm border-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 70px;">Nível</th>
+                    <th style="width: 190px;">Nomenclatura</th>
+                    <th>O que significa na prática</th>
+                    <th style="width: 210px;">Exemplo no Consultório</th>
+                    <th style="width: 210px;">Exemplo Pessoal</th>
+                    <th style="width: 90px;">Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for n in niveis %}
+                <tr>
+                    <td>
+                        <span class="badge fs-6" style="background-color: {{ estilo_nivel[n.nivel].cor }};">
+                            <i class="bi {{ estilo_nivel[n.nivel].icone }} me-1"></i>{{ n.nivel }}
+                        </span>
+                        {% if n.nivel in [3, 4] %}
+                            <div class="small text-muted mt-1" title="Entra na conta de quanto dava para cortar">cortável</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <strong>{{ n.nome }}</strong>
+                        {% if n.apelido %}<div class="small text-muted">({{ n.apelido }})</div>{% endif %}
+                        {% if uso_por_nivel.get(n.nivel) %}
+                            <div class="small text-muted mt-1">
+                                <i class="bi bi-tag me-1"></i>{{ uso_por_nivel[n.nivel] }} lançamento(s)
+                            </div>
+                        {% endif %}
+                    </td>
+                    <td class="small">{{ n.significado }}</td>
+                    <td class="small text-muted">{{ n.exemplo_empresa }}</td>
+                    <td class="small text-muted">{{ n.exemplo_casa }}</td>
+                    <td>
+                        <button type="button" class="btn btn-sm btn-outline-primary"
+                                data-bs-toggle="modal" data-bs-target="#modalNivel{{ n.nivel }}"
+                                title="Editar nível {{ n.nivel }}" aria-label="Editar nível {{ n.nivel }}">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% for n in niveis %}
+<div class="modal fade" id="modalNivel{{ n.nivel }}" tabindex="-1">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
+        <div class="modal-content text-start">
+            <div class="modal-header text-white" style="background-color: {{ estilo_nivel[n.nivel].cor }};">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi {{ estilo_nivel[n.nivel].icone }} me-2"></i> Editar nível {{ n.nivel }}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('editar_nivel_importancia', nivel=n.nivel) }}">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-7 mb-3">
+                            <label class="form-label font-weight-bold">Nomenclatura</label>
+                            <input type="text" name="nome" class="form-control" value="{{ n.nome }}" required>
+                        </div>
+                        <div class="col-md-5 mb-3">
+                            <label class="form-label font-weight-bold">Apelido (opcional)</label>
+                            <input type="text" name="apelido" class="form-control" value="{{ n.apelido or '' }}"
+                                   placeholder="ex.: Crítico">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">O que significa na prática</label>
+                        <textarea name="significado" class="form-control" rows="3">{{ n.significado or '' }}</textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Exemplo no Consultório</label>
+                        <input type="text" name="exemplo_empresa" class="form-control" value="{{ n.exemplo_empresa or '' }}">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label font-weight-bold">Exemplo Pessoal</label>
+                        <input type="text" name="exemplo_casa" class="form-control" value="{{ n.exemplo_casa or '' }}">
+                    </div>
+
+                    {% if uso_por_nivel.get(n.nivel) %}
+                    <div class="alert alert-light border small mb-0">
+                        <i class="bi bi-info-circle me-1 text-primary"></i>
+                        {{ uso_por_nivel[n.nivel] }} lançamento(s) usam este nível hoje. Renomear não afeta nenhum deles.
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer sticky-bottom bg-white">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary fw-bold">Salvar Alterações</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}

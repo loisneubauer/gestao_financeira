@@ -86,8 +86,8 @@ def injetar_csrf_e_dados_globais():
         "csrf_token": lambda: session["csrf_token"],
         "esfera_filtro": esfera_atual,
         "tenant_nome": session.get("tenant_nome", ""),
-        "niveis_importancia": calculos.NIVEIS_IMPORTANCIA,
-        "estilo_importancia": calculos.ESTILO_IMPORTANCIA,
+        "niveis_importancia": database.listar_niveis_importancia(),
+        "estilo_nivel": calculos.ESTILO_NIVEL,
         "nao_classificado": calculos.NAO_CLASSIFICADO
     }
 
@@ -138,10 +138,17 @@ def _normalizar_slug(texto):
     return re.sub(r"[^a-z0-9-]+", "-", texto.strip().lower()).strip("-")
 
 
-def _importancia_valida(valor):
-    """Aceita só os níveis conhecidos; qualquer outra coisa (inclusive vazio)
-    vira None, que o sistema exibe como "Não classificado"."""
-    return valor if valor in calculos.NIVEIS_IMPORTANCIA else None
+def _nivel_importancia_valido(valor):
+    """Aceita só os números de nível conhecidos (1 a 4); qualquer outra coisa
+    (inclusive vazio) vira None, exibido como "Não classificado".
+
+    O formulário envia o NÚMERO do nível, não o nome — assim renomear um nível
+    na tela de configuração não deixa órfão nenhum lançamento já classificado."""
+    try:
+        nivel = int(valor)
+    except (TypeError, ValueError):
+        return None
+    return nivel if nivel in calculos.NIVEIS_VALIDOS else None
 
 
 # ===== AUTENTICAÇÃO E PERFIL =====
@@ -441,6 +448,52 @@ def pagina_inicial():
     )
 
 
+# ===== TABELA DE IMPORTÂNCIA (configuração) =====
+
+@app.route("/configuracoes/importancia")
+@admin_required
+def tabela_importancia():
+    """Mostra a escala de classificação de gastos e permite editar os rótulos.
+
+    Restrita a admin de plataforma: a escala é definida junto com o cliente e
+    fica pré-configurada. Os quatro níveis são fixos — o que se edita é como
+    eles se chamam e como são explicados."""
+    return render_template(
+        "tabela_importancia.html",
+        niveis=database.listar_niveis_importancia(),
+        uso_por_nivel=database.contar_lancamentos_por_nivel(),
+        sucesso=request.args.get("sucesso"),
+    )
+
+
+@app.route("/configuracoes/importancia/<int:nivel>/editar", methods=["POST"])
+@admin_required
+def editar_nivel_importancia(nivel):
+    if nivel not in calculos.NIVEIS_VALIDOS:
+        return redirect(url_for("tabela_importancia"))
+
+    nome = request.form.get("nome", "").strip()
+    if not nome:
+        return redirect(url_for("tabela_importancia", sucesso="O nome do nível não pode ficar em branco."))
+
+    database.atualizar_nivel_importancia(
+        nivel, nome,
+        request.form.get("apelido", "").strip(),
+        request.form.get("significado", "").strip(),
+        request.form.get("exemplo_empresa", "").strip(),
+        request.form.get("exemplo_casa", "").strip(),
+    )
+    # Nenhum lançamento é tocado: eles guardam o NÚMERO do nível, não o nome.
+    return redirect(url_for("tabela_importancia", sucesso=f"Nível {nivel} atualizado."))
+
+
+@app.route("/configuracoes/importancia/restaurar", methods=["POST"])
+@admin_required
+def restaurar_tabela_importancia():
+    database.restaurar_niveis_importancia_padrao()
+    return redirect(url_for("tabela_importancia", sucesso="Tabela restaurada para o padrão."))
+
+
 # ===== EXPORTAÇÃO =====
 
 # Separador ";" e vírgula decimal de propósito: é o que o Excel em português
@@ -485,6 +538,7 @@ def exportar_lancamentos(tipo):
         tenant_atual(), tipo=tipo, esfera=esfera_filtro, mes_ano=mes_ano
     )
 
+    nomes_niveis = calculos.nomes_dos_niveis()
     colunas = ["Vencimento", "Descrição", "Categoria", "Esfera", "Valor",
                "Status", "Forma de Pagamento", "Data de Pagamento", "Observações"]
     # A classificação de importância só existe para despesas.
@@ -510,7 +564,7 @@ def exportar_lancamentos(tipo):
             l["observacoes"] or "",
         ]
         if tipo == "Pagar":
-            linha.insert(4, l["importancia"] or "Não classificado")
+            linha.insert(4, nomes_niveis.get(l["importancia_nivel"], calculos.NAO_CLASSIFICADO))
         escritor.writerow(linha)
 
     # Linha de total no fim: o contador confere a soma sem precisar refazer.
@@ -569,7 +623,7 @@ def novo_pagar():
         "recorrente": 1 if freq != "Nenhuma" else 0,
         "frequencia_recorrencia": freq,
         "observacoes": request.form.get("observacoes", ""),
-        "importancia": _importancia_valida(request.form.get("importancia"))
+        "importancia_nivel": _nivel_importancia_valido(request.form.get("importancia_nivel"))
     }
     if dados["status"] == "Pago":
         dados["data_pagamento"] = request.form.get("data_pagamento") or date.today().isoformat()
@@ -614,7 +668,7 @@ def editar_pagar(id_lancamento):
         "recorrente": 1 if freq != "Nenhuma" else 0,
         "frequencia_recorrencia": freq,
         "observacoes": request.form.get("observacoes", ""),
-        "importancia": _importancia_valida(request.form.get("importancia"))
+        "importancia_nivel": _nivel_importancia_valido(request.form.get("importancia_nivel"))
     }
     if dados["status"] == "Pago":
         dados["data_pagamento"] = request.form.get("data_pagamento") or date.today().isoformat()
