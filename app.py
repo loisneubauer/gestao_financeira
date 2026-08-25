@@ -435,6 +435,7 @@ def pagina_inicial():
     resumo = calculos.calcular_resumo_financeiro(tenant_atual(), esfera_filtro, mes_ano)
     despesas_categorias = calculos.calcular_despesas_por_categoria(tenant_atual(), esfera_filtro, mes_ano)
     importancia = calculos.calcular_gastos_por_importancia(tenant_atual(), esfera_filtro, mes_ano)
+    saldo = calculos.calcular_saldo_do_mes(tenant_atual(), esfera_filtro, mes_ano)
     dias_uteis = calculos.dias_uteis_restantes_no_mes()
 
     return render_template(
@@ -442,9 +443,46 @@ def pagina_inicial():
         resumo=resumo,
         despesas_categorias=despesas_categorias,
         importancia=importancia,
+        saldo=saldo,
         dias_uteis=dias_uteis,
         mes_ano=mes_ano,
         esfera_filtro=esfera_filtro
+    )
+
+
+# ===== SALDO INICIAL DE CAIXA (configuração) =====
+
+@app.route("/configuracoes/saldo-inicial", methods=["GET", "POST"])
+@login_required
+def saldo_inicial():
+    """Ponto de partida do caixa de cada esfera.
+
+    Não é @admin_required de propósito: o saldo é da organização e quem usa o
+    sistema no dia a dia precisa poder ajustar quando conferir o extrato."""
+    if request.method == "POST":
+        esfera = request.form.get("esfera")
+        if esfera not in database.ESFERAS_DE_CAIXA:
+            return redirect(url_for("saldo_inicial", erro="Esfera inválida."))
+
+        valor = _valor_numerico(request.form.get("valor"))
+        if valor is None:
+            return redirect(url_for("saldo_inicial",
+                                    erro="Valor inválido. Use um número com ponto como separador decimal (ex.: 2400.00)."))
+
+        data_ref = _data_iso_valida(request.form.get("data_referencia"))
+        if data_ref is None:
+            return redirect(url_for("saldo_inicial", erro="Informe uma data válida."))
+
+        database.definir_saldo_inicial(tenant_atual(), esfera, valor, data_ref)
+        return redirect(url_for("saldo_inicial", sucesso=f"Saldo inicial de {esfera} atualizado."))
+
+    return render_template(
+        "saldo_inicial.html",
+        saldos=database.obter_saldos_iniciais(tenant_atual()),
+        esferas=database.ESFERAS_DE_CAIXA,
+        primeiro_lancamento=database.data_do_primeiro_lancamento(tenant_atual()),
+        sucesso=request.args.get("sucesso"),
+        erro=request.args.get("erro"),
     )
 
 

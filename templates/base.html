@@ -170,6 +170,8 @@
                         <li><h6 class="dropdown-header">Configurações</h6></li>
                         <li><a class="dropdown-item {% if request.endpoint == 'listar_categorias_view' %}active{% endif %}"
                                href="{{ url_for('listar_categorias_view') }}"><i class="bi bi-tags me-2"></i>Categorias</a></li>
+                        <li><a class="dropdown-item {% if request.endpoint == 'saldo_inicial' %}active{% endif %}"
+                               href="{{ url_for('saldo_inicial') }}"><i class="bi bi-cash-stack me-2"></i>Saldo Inicial</a></li>
                         {% if session.usuario_is_admin %}
                         <li><a class="dropdown-item {% if request.endpoint == 'tabela_importancia' %}active{% endif %}"
                                href="{{ url_for('tabela_importancia') }}"><i class="bi bi-bullseye me-2"></i>Tabela de Importância</a></li>

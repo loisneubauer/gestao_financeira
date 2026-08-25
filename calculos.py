@@ -68,6 +68,90 @@ def dias_uteis_restantes_no_mes(data_ref=None):
     return dias_uteis
 
 
+def _ultimo_dia_do_mes(mes_ano):
+    """Devolve AAAA-MM-DD do último dia de um mês AAAA-MM."""
+    ano, mes = map(int, mes_ano.split("-"))
+    if mes == 12:
+        primeiro_do_seguinte = date(ano + 1, 1, 1)
+    else:
+        primeiro_do_seguinte = date(ano, mes + 1, 1)
+    return (primeiro_do_seguinte - timedelta(days=1)).isoformat()
+
+
+def _saldo_de_uma_esfera(tenant_id, esfera, mes_ano):
+    """Saldo de caixa de UMA esfera no mês, com o que veio de antes."""
+    iniciais = database.obter_saldos_iniciais(tenant_id)
+    inicial = iniciais.get(esfera)
+
+    primeiro_dia = f"{mes_ano}-01"
+    ultimo_dia = _ultimo_dia_do_mes(mes_ano)
+
+    if inicial:
+        ponto_de_partida = float(inicial["valor"])
+        desde = inicial["data_referencia"]
+    else:
+        # Sem ponto de partida informado, começa do zero e soma tudo que existe.
+        # O número fica certo em relação ao que foi lançado, mas ignora o que
+        # havia em caixa antes do sistema — por isso a tela avisa.
+        ponto_de_partida = 0.0
+        desde = database.data_do_primeiro_lancamento(tenant_id, esfera)
+
+    # O que se movimentou entre o ponto de partida e o fim do mês anterior
+    entrou_antes, saiu_antes = database.somar_movimentacoes(
+        tenant_id, esfera, data_inicio=desde,
+        data_fim=(date.fromisoformat(primeiro_dia) - timedelta(days=1)).isoformat()
+    )
+    saldo_inicial_periodo = ponto_de_partida + entrou_antes - saiu_antes
+
+    entrou, saiu = database.somar_movimentacoes(
+        tenant_id, esfera, data_inicio=primeiro_dia, data_fim=ultimo_dia
+    )
+
+    return {
+        "saldo_inicial_periodo": saldo_inicial_periodo,
+        "entrou": entrou,
+        "saiu": saiu,
+        "saldo_final": saldo_inicial_periodo + entrou - saiu,
+        "tem_saldo_inicial": inicial is not None,
+    }
+
+
+def calcular_saldo_do_mes(tenant_id, esfera_filtro="Todas", mes_ano=None):
+    """
+    Saldo de caixa do mês, com continuidade: quanto veio do mês anterior, quanto
+    entrou e saiu no mês, e com quanto o mês fecha.
+
+    Diferente de calcular_resumo_financeiro, que olha o mês isolado e soma por
+    status, aqui o que conta é a data em que o dinheiro se moveu — é isso que faz
+    o número bater com o extrato.
+
+    Com esfera "Todas", soma Empresa e Casa (são contas bancárias separadas, e o
+    consolidado é a soma das duas).
+    """
+    if not mes_ano:
+        mes_ano = date.today().strftime("%Y-%m")
+
+    if esfera_filtro and esfera_filtro != "Todas":
+        resultado = _saldo_de_uma_esfera(tenant_id, esfera_filtro, mes_ano)
+        resultado["esferas_sem_saldo_inicial"] = (
+            [] if resultado["tem_saldo_inicial"] else [esfera_filtro]
+        )
+        return resultado
+
+    total = {"saldo_inicial_periodo": 0.0, "entrou": 0.0, "saiu": 0.0, "saldo_final": 0.0}
+    sem_inicial = []
+    for esfera in database.ESFERAS_DE_CAIXA:
+        parcial = _saldo_de_uma_esfera(tenant_id, esfera, mes_ano)
+        for chave in total:
+            total[chave] += parcial[chave]
+        if not parcial["tem_saldo_inicial"]:
+            sem_inicial.append(esfera)
+
+    total["tem_saldo_inicial"] = not sem_inicial
+    total["esferas_sem_saldo_inicial"] = sem_inicial
+    return total
+
+
 def calcular_resumo_financeiro(tenant_id, esfera_filtro="Todas", mes_ano=None):
     """
     Calcula os totais de Contas a Pagar e Contas a Receber divididos por status:

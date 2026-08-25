@@ -408,6 +408,73 @@ def cmd_smoke(args):
     status, _ = chamar_webhook(base, {"descricao": "z", "valor": 1, "vencimento": "2026-12-31"})
     checa("aceita vencimento ISO válido", status == 201, f"status {status}")
 
+    print("\nSaldo que atravessa o mês", flush=True)
+    _, dash = c.get("/")
+    for rotulo in ["Vem do mês anterior", "Entrou no mês", "Saiu no mês", "Fecha o mês com"]:
+        checa(f"dashboard mostra '{rotulo}'", rotulo in dash)
+    checa("avisa que falta saldo inicial", "saldo inicial definido" in dash)
+
+    # O caso central: pagar em mês diferente do vencimento. O dinheiro tem que
+    # contar no mês em que saiu da conta, não no mês em que a conta venceu.
+    import calculos  # importado aqui: o banco temporário já está registrado
+    database.definir_saldo_inicial(tid, "Casa", 1000.0, "2026-06-01")
+    database.definir_saldo_inicial(tid, "Empresa", 0.0, "2026-06-01")
+    # Mede a DIFERENÇA que este lançamento causa: os dados semeados já têm
+    # despesas de Casa em agosto, então o total absoluto não diz nada.
+    jul_antes = calculos.calcular_saldo_do_mes(tid, "Casa", "2026-07")["saiu"]
+    ago_antes = calculos.calcular_saldo_do_mes(tid, "Casa", "2026-08")["saiu"]
+    database.inserir_lancamento(tid, {
+        "descricao": "Vence em julho, paga em agosto", "tipo": "Pagar", "esfera": "Casa",
+        "categoria_id": None, "valor": 500.0, "vencimento": "2026-07-28",
+        "status": "Pago", "data_pagamento": "2026-08-05", "forma_pagamento": "Pix",
+        "frequencia_recorrencia": "Nenhuma", "observacoes": ""})
+
+    jul = calculos.calcular_saldo_do_mes(tid, "Casa", "2026-07")
+    ago = calculos.calcular_saldo_do_mes(tid, "Casa", "2026-08")
+    checa("pagamento não conta no mês do vencimento (julho)",
+          abs(jul["saiu"] - jul_antes) < 0.01, f"julho variou {jul['saiu'] - jul_antes}")
+    checa("e conta no mês em que o dinheiro saiu (agosto)",
+          abs((ago["saiu"] - ago_antes) - 500) < 0.01, f"agosto variou {ago['saiu'] - ago_antes}")
+    checa("o saldo de um mês é o ponto de partida do seguinte",
+          abs(jul["saldo_final"] - ago["saldo_inicial_periodo"]) < 0.01,
+          f"{jul['saldo_final']} vs {ago['saldo_inicial_periodo']}")
+    checa("a aritmética do extrato fecha",
+          abs((ago["saldo_inicial_periodo"] + ago["entrou"] - ago["saiu"]) - ago["saldo_final"]) < 0.01)
+
+    # Lançamento vindo do webhook chega Pago sem data_pagamento — não pode sumir
+    database.inserir_lancamento(tid, {
+        "descricao": "Recebido sem data de pagamento", "tipo": "Receber", "esfera": "Empresa",
+        "categoria_id": None, "valor": 900.0, "vencimento": "2026-08-10",
+        "status": "Recebido", "data_pagamento": None, "forma_pagamento": "Pix",
+        "frequencia_recorrencia": "Nenhuma", "observacoes": ""})
+    emp = calculos.calcular_saldo_do_mes(tid, "Empresa", "2026-08")
+    checa("efetivado sem data de pagamento não some do saldo",
+          emp["entrou"] >= 900, f"entrou {emp['entrou']}")
+
+    casa = calculos.calcular_saldo_do_mes(tid, "Casa", "2026-08")
+    checa("Empresa e Casa têm saldos independentes",
+          casa["entrou"] != emp["entrou"] or casa["saiu"] != emp["saiu"])
+    todas = calculos.calcular_saldo_do_mes(tid, "Todas", "2026-08")
+    checa("'Todas' soma as duas esferas",
+          abs(todas["saldo_final"] - (casa["saldo_final"] + emp["saldo_final"])) < 0.01)
+
+    # O seam para a visão por competência existe e responde diferente do caixa
+    _, saiu_competencia = database.somar_movimentacoes(
+        tid, "Casa", "2026-07-01", "2026-07-31", base="competencia")
+    checa("o seam de competência existe e difere do caixa",
+          saiu_competencia == 500 and jul["saiu"] == 0,
+          f"competência {saiu_competencia}, caixa {jul['saiu']}")
+
+    status, html_si = c.get("/configuracoes/saldo-inicial")
+    checa("tela de saldo inicial abre", status == 200, f"status {status}")
+    token = c.csrf("/configuracoes/saldo-inicial")
+    status, _ = c.post("/configuracoes/saldo-inicial", {
+        "csrf_token": token, "esfera": "Casa", "valor": "1500.00",
+        "data_referencia": "2026-06-01"})
+    checa("salvar saldo inicial funciona", status == 302, f"status {status}")
+    checa("e o valor foi gravado",
+          database.obter_saldos_iniciais(tid)["Casa"]["valor"] == 1500.0)
+
     print("\nExportação", flush=True)
     status, csv_pagar = c.get("/exportar/Pagar")
     checa("exporta contas a pagar", status == 200, f"status {status}")

@@ -158,6 +158,117 @@ def _semear_niveis_importancia(conexao, tenant_id=None):
             """, (tid, nivel, nome, apelido, significado, ex_empresa, ex_casa))
 
 
+# ===== SALDO DE CAIXA =====
+
+ESFERAS_DE_CAIXA = ["Empresa", "Casa"]
+
+# Qual data define em que mês o dinheiro conta. Fica num lugar só, de propósito:
+# a visão por COMPETÊNCIA (a que mês o gasto pertence, independente de quando o
+# dinheiro se moveu) pode ser útil no futuro, e quando for pedida o trabalho
+# deve ser a tela, não reescrever consulta espalhada pelo código.
+#
+#   caixa       -> quando o dinheiro se moveu de verdade (o que o extrato mostra)
+#   competencia -> a que mês o lançamento pertence, pago ou não
+#
+# Hoje só "caixa" é usado. O outro ramo existe como seam, não como recurso.
+_BASES_DE_DATA = {
+    "caixa": {
+        "expressao": "COALESCE(lancamentos.data_pagamento, lancamentos.vencimento)",
+        "so_efetivados": True,
+    },
+    "competencia": {
+        "expressao": "lancamentos.vencimento",
+        "so_efetivados": False,
+    },
+}
+
+
+def obter_saldos_iniciais(tenant_id):
+    """Devolve {esfera: {'valor': float, 'data_referencia': str}}. Esfera sem
+    saldo definido simplesmente não aparece no dicionário."""
+    conexao = conectar()
+    linhas = conexao.execute(
+        "SELECT esfera, valor, data_referencia FROM saldos_iniciais WHERE tenant_id = ?",
+        (tenant_id,)
+    ).fetchall()
+    conexao.close()
+    return {
+        l["esfera"]: {"valor": float(l["valor"] or 0), "data_referencia": l["data_referencia"]}
+        for l in linhas
+    }
+
+
+def definir_saldo_inicial(tenant_id, esfera, valor, data_referencia):
+    """Grava (ou substitui) o ponto de partida do caixa de uma esfera."""
+    conexao = conectar()
+    conexao.execute("""
+        INSERT INTO saldos_iniciais (tenant_id, esfera, valor, data_referencia)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT (tenant_id, esfera)
+        DO UPDATE SET valor = excluded.valor, data_referencia = excluded.data_referencia
+    """, (tenant_id, esfera, float(valor or 0), data_referencia))
+    conexao.commit()
+    conexao.close()
+
+
+def somar_movimentacoes(tenant_id, esfera=None, data_inicio=None, data_fim=None, base="caixa"):
+    """Soma quanto entrou e quanto saiu num intervalo, devolvendo (entrou, saiu).
+
+    Com base="caixa" (padrão), conta só o que foi efetivado — status Pago ou
+    Recebido — e usa a data em que o dinheiro se moveu. O COALESCE existe porque
+    lançamentos vindos do webhook da clínica chegam com status Pago mas sem
+    data_pagamento; sem o fallback eles sumiriam do saldo.
+
+    data_inicio=None significa "desde sempre". esfera None ou "Todas" não filtra.
+    """
+    config = _BASES_DE_DATA.get(base) or _BASES_DE_DATA["caixa"]
+    data_expr = config["expressao"]
+
+    condicoes = ["lancamentos.tenant_id = ?"]
+    params = [tenant_id]
+
+    if config["so_efetivados"]:
+        condicoes.append("lancamentos.status IN ('Pago', 'Recebido')")
+    if esfera and esfera != "Todas":
+        condicoes.append("lancamentos.esfera = ?")
+        params.append(esfera)
+    if data_inicio:
+        condicoes.append(f"{data_expr} >= ?")
+        params.append(data_inicio)
+    if data_fim:
+        condicoes.append(f"{data_expr} <= ?")
+        params.append(data_fim)
+
+    conexao = conectar()
+    linha = conexao.execute(f"""
+        SELECT
+            COALESCE(SUM(CASE WHEN lancamentos.tipo = 'Receber' THEN lancamentos.valor END), 0) AS entrou,
+            COALESCE(SUM(CASE WHEN lancamentos.tipo = 'Pagar'   THEN lancamentos.valor END), 0) AS saiu
+        FROM lancamentos
+        WHERE {' AND '.join(condicoes)}
+    """, params).fetchone()
+    conexao.close()
+    return float(linha["entrou"] or 0), float(linha["saiu"] or 0)
+
+
+def data_do_primeiro_lancamento(tenant_id, esfera=None):
+    """Data de caixa mais antiga da organização — usada quando não há saldo
+    inicial informado, para saber de onde começar a somar."""
+    condicoes = ["tenant_id = ?"]
+    params = [tenant_id]
+    if esfera and esfera != "Todas":
+        condicoes.append("esfera = ?")
+        params.append(esfera)
+    conexao = conectar()
+    linha = conexao.execute(
+        f"SELECT MIN(COALESCE(data_pagamento, vencimento)) AS inicio "
+        f"FROM lancamentos WHERE {' AND '.join(condicoes)}",
+        params
+    ).fetchone()
+    conexao.close()
+    return linha["inicio"] if linha else None
+
+
 # ===== NÍVEIS DE IMPORTÂNCIA =====
 
 def listar_niveis_importancia(tenant_id):
@@ -326,6 +437,20 @@ def criar_tabelas():
             exemplo_empresa TEXT,
             exemplo_casa TEXT,
             UNIQUE (tenant_id, nivel)
+        )
+    """)
+
+    # Saldo inicial de caixa de cada esfera. O sistema não conhece a vida da
+    # organização antes dos primeiros lançamentos: sem um ponto de partida
+    # informado, todo saldo acumulado nasce errado.
+    conexao.execute("""
+        CREATE TABLE IF NOT EXISTS saldos_iniciais (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL REFERENCES tenants (id),
+            esfera TEXT NOT NULL,            -- 'Empresa' ou 'Casa'
+            valor REAL NOT NULL DEFAULT 0,
+            data_referencia TEXT NOT NULL,   -- AAAA-MM-DD: a partir de quando vale
+            UNIQUE (tenant_id, esfera)
         )
     """)
 

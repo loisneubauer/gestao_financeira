@@ -44,9 +44,9 @@
         <div class="card card-resumo shadow-sm border-0 bg-primary text-white p-3">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <span class="small opacity-75">Saldo Atual em Caixa</span>
-                    <h3 class="fw-bold mb-0 mt-1">{{ resumo.saldo_atual | moeda_br }}</h3>
-                    <small class="opacity-75">Recebido Real - Pago Real</small>
+                    <span class="small opacity-75">Saldo em Caixa</span>
+                    <h3 class="fw-bold mb-0 mt-1">{{ saldo.saldo_final | moeda_br }}</h3>
+                    <small class="opacity-75">com o que veio dos meses anteriores</small>
                 </div>
                 <i class="bi bi-cash-stack fs-1 opacity-50"></i>
             </div>
@@ -93,6 +93,45 @@
     </div>
 </div>
 
+
+<!-- Como o saldo chegou até aqui: o mês não começa do zero -->
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-body p-3 p-md-4">
+        <div class="row align-items-center g-3">
+            <div class="col-md-3">
+                <span class="text-muted small d-block">Vem do mês anterior</span>
+                <span class="fs-5 fw-semibold">{{ saldo.saldo_inicial_periodo | moeda_br }}</span>
+            </div>
+            <div class="col-md-3">
+                <span class="text-muted small d-block">+ Entrou no mês</span>
+                <span class="fs-5 fw-semibold text-success">{{ saldo.entrou | moeda_br }}</span>
+            </div>
+            <div class="col-md-3">
+                <span class="text-muted small d-block">− Saiu no mês</span>
+                <span class="fs-5 fw-semibold text-danger">{{ saldo.saiu | moeda_br }}</span>
+            </div>
+            <div class="col-md-3 border-start ps-md-4">
+                <span class="text-muted small d-block">Fecha o mês com</span>
+                <span class="fs-4 fw-bold" style="color: #4A2E6E;">{{ saldo.saldo_final | moeda_br }}</span>
+            </div>
+        </div>
+
+        {% if saldo.esferas_sem_saldo_inicial %}
+        <div class="alert alert-light border small mt-3 mb-0 d-flex align-items-start">
+            <i class="bi bi-info-circle me-2 mt-1 text-primary"></i>
+            <div>
+                {% if saldo.esferas_sem_saldo_inicial | length == 1 %}
+                    <strong>{{ saldo.esferas_sem_saldo_inicial[0] }}</strong> ainda não tem saldo inicial definido,
+                {% else %}
+                    <strong>Empresa e Casa</strong> ainda não têm saldo inicial definido,
+                {% endif %}
+                então este número considera só o que foi lançado no sistema — não o que já havia em caixa antes.
+                <a href="{{ url_for('saldo_inicial') }}" class="fw-semibold">Definir agora</a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
 
 <!-- Gráfico e Detalhamento de Despesas por Categoria -->
 <div class="row g-4 mb-4">
