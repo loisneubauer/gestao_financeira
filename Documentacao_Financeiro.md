@@ -1,123 +1,233 @@
 # 📊 Documentação: Sistema Financeiro (Gestão Financeira — Empresa & Casa)
 
-> Atualizado em 2026-08-10 a partir do código real (`app.py`, `database.py`, `calculos.py`, `templates/`). A versão anterior deste documento descrevia um sistema de clínica de acupuntura (tabelas `pagamentos`, `atendimentos`, `fechamentos_mensais`, integração Climed) que **não existe no código atual** — provavelmente era de outro projeto ou uma versão futura ainda não implementada. Este documento substitui aquele conteúdo.
+> Atualizado em 2026-08-24 a partir do código real (`app.py`, `database.py`, `calculos.py`, `emailer.py`, `templates/`).
+> A versão anterior deste documento era de 2026-08-10 e descrevia o sistema **antes** do multi-tenancy — afirmava que "não há isolamento multi-tenant hoje" e que o webhook não tinha autenticação. Ambos já foram implementados. Este documento substitui aquele conteúdo.
 
-Este é um sistema web (Flask + SQLite) de controle de contas a pagar e a receber, compartilhado por duas usuárias (Lois e Laila) que dividem o mesmo login/base de dados, separando os lançamentos por **esfera**: "Empresa" (clínica) ou "Casa" (pessoal).
+Sistema web (Flask + SQLite) de controle de contas a pagar e a receber, organizado em **duas dimensões independentes**:
+
+- **Organização (tenant)** — isolamento real de dados. Cada organização tem seus próprios usuários, categorias e lançamentos, e nunca enxerga os das outras.
+- **Esfera** — "Empresa" (clínica) ou "Casa" (pessoal). É apenas uma lente de visualização *dentro* de uma organização, não uma fronteira de segurança.
 
 ---
 
 ## 1. Arquitetura
 
 - **Backend**: Flask (`app.py`), rodando localmente na porta 5002 (`debug=True`).
-- **Banco de dados**: SQLite (`financeiro.db`), acessado via `sqlite3` em `database.py` (sem ORM).
-- **Regras de negócio**: isoladas em `calculos.py` (cálculo de resumo financeiro, despesas por categoria, geração de recorrências).
+- **Banco de dados**: SQLite (`financeiro.db`), acessado via `sqlite3` em `database.py` (sem ORM), com `PRAGMA foreign_keys = ON`.
+- **Regras de negócio**: isoladas em `calculos.py` (resumo financeiro, despesas por categoria, geração de recorrências). Todas as funções recebem `tenant_id` como primeiro parâmetro.
+- **Email transacional**: `emailer.py` — convite de novo usuário via Gmail SMTP (porta 587).
 - **Templates**: Jinja2 + Bootstrap 5 (`templates/`), com filtros customizados `moeda_br` e `data_br`.
-- **Autenticação**: sessão de servidor (Flask `session`), sem separação por tenant/organização — todos os usuários cadastrados em `usuarios` enxergam o mesmo banco de dados, filtrado apenas pela "esfera" escolhida.
-- **Segurança**: proteção CSRF manual (token gerado por sessão, injetado via JS em todo `<form method="post">`), cabeçalhos `X-Frame-Options` e `X-Content-Type-Options`, senha com hash (`werkzeug.security`), limite de tentativas de login declarado mas não totalmente aplicado (`_tentativas_login`/`LIMITE_TENTATIVAS_LOGIN` existem como variáveis mas o bloqueio não está implementado nas rotas).
 - **Chave secreta**: gerada uma vez e persistida em `.secret_key` na raiz do projeto.
+- **Dependências** (`requirements.txt`): Flask 3.0.3, Werkzeug 3.0.3, itsdangerous 2.2.0.
+
+### 1.1 Multi-tenancy
+
+O isolamento é feito por `tenant_id` em **todas** as tabelas de dados, aplicado na camada de acesso (`database.py`): toda query de leitura, atualização e exclusão carrega `WHERE ... AND tenant_id = ?`. A rota obtém o tenant da sessão via `tenant_atual()`, nunca da URL ou do formulário.
+
+`criar_tabelas()` faz **migração automática** de instalações anteriores ao multi-tenancy: cria um tenant padrão, reconstrói `usuarios` para trocar `UNIQUE(email)` por `UNIQUE(tenant_id, email)`, e adiciona `tenant_id` em `categorias` e `lancamentos`. Também há migrações legadas incrementais para `frequencia_recorrencia`, `is_admin` e `deve_trocar_senha`.
+
+### 1.2 Segurança
+
+| Mecanismo | Estado |
+|---|---|
+| Hash de senha (`werkzeug.security`) | ✅ ativo |
+| CSRF manual (token por sessão, validado em `before_request`) | ✅ ativo — isenta `/api/*`, `login`, `esqueci_senha`, `redefinir_senha` |
+| Cookies `HttpOnly` + `SameSite=Lax`, sessão de 8h | ✅ ativo |
+| Cabeçalhos `X-Frame-Options: SAMEORIGIN` e `X-Content-Type-Options: nosniff` | ✅ ativo |
+| Autenticação do webhook por token de organização | ✅ ativo (ver §5) |
+| Limite de tentativas de login | ⚠️ **não implementado** — `_tentativas_login`, `LIMITE_TENTATIVAS_LOGIN` e `TEMPO_BLOQUEIO_MINUTOS` existem em `app.py:131-133` mas nenhuma rota os consulta |
 
 ---
 
 ## 2. Estrutura de Banco de Dados
 
-### 2.1 `usuarios`
-Login e perfil das usuárias do sistema.
+### 2.1 `tenants`
+Organizações (clínicas) que usam a plataforma.
 
 | Campo | Tipo | Observação |
 |---|---|---|
 | `id` | INTEGER PK | |
+| `nome` | TEXT | exibido na navbar |
+| `slug` | TEXT UNIQUE | identificador curto; também é a confirmação exigida para excluir a organização |
+| `ativo` | INTEGER | 0 bloqueia o login de todos os usuários da organização |
+| `criado_em` | TEXT | `datetime('now')` |
+| `api_token` | TEXT UNIQUE | token do webhook (ver §5); gerado na criação e regenerável pelo admin |
+
+### 2.2 `usuarios`
+
+| Campo | Tipo | Observação |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `tenant_id` | INTEGER FK → `tenants.id` | |
 | `nome` | TEXT | |
-| `email` | TEXT UNIQUE | usado como login |
-| `senha_hash` | TEXT | gerado com `werkzeug.security.generate_password_hash` |
-| `foto_perfil` | TEXT | nome do arquivo em `static/uploads/avatars/` |
+| `email` | TEXT | login; único **por organização** (`UNIQUE (tenant_id, email)`) |
+| `senha_hash` | TEXT | `generate_password_hash` |
+| `foto_perfil` | TEXT | caminho `{tenant_id}/{arquivo}` dentro de `static/uploads/avatars/` |
 | `saudacao` | TEXT | ex: "Sr.", "Dra." — exibido no cumprimento da navbar |
+| `is_admin` | INTEGER | **admin de plataforma** — ver §4 |
+| `deve_trocar_senha` | INTEGER | 1 força a troca no próximo login |
 
-Hoje só existem duas usuárias cadastradas via `criar_usuarios.py`: Lois e Laila (Dra., acupuntura). Recuperação de senha via link temporário assinado (`itsdangerous`, expira em 30 min).
-
-### 2.2 `categorias`
-Categorias de despesas/receitas, reutilizáveis entre lançamentos.
+### 2.3 `categorias`
 
 | Campo | Tipo | Observação |
 |---|---|---|
 | `id` | INTEGER PK | |
+| `tenant_id` | INTEGER FK → `tenants.id` | |
 | `nome` | TEXT | ex: Aluguel, Luz, Insumos, Consultas |
-| `tipo` | TEXT | `'Pagar'` ou `'Receber'` |
+| `tipo` | TEXT | `'Pagar'`, `'Receber'` ou `'Ambos'` |
 | `esfera` | TEXT | `'Empresa'`, `'Casa'` ou `'Ambos'` |
 
-### 2.3 `lancamentos`
-Tabela central: cada linha é uma despesa (Pagar) ou receita (Receber), sem parcelamento — cada parcela/recorrência é uma linha própria.
+Categorias marcadas como `'Ambos'` aparecem nas duas listas — o filtro em `listar_categorias` usa `(tipo = ? OR tipo = 'Ambos')`.
+
+### 2.4 `lancamentos`
+Tabela central: cada linha é uma despesa (Pagar) ou receita (Receber). **Não há tabela de parcelamento** — cada parcela ou ocorrência recorrente é uma linha própria.
 
 | Campo | Tipo | Observação |
 |---|---|---|
 | `id` | INTEGER PK | |
+| `tenant_id` | INTEGER FK → `tenants.id` | |
 | `descricao` | TEXT | |
 | `tipo` | TEXT | `'Pagar'` ou `'Receber'` |
 | `esfera` | TEXT | `'Empresa'` ou `'Casa'` |
-| `categoria_id` | INTEGER FK | → `categorias.id` |
+| `categoria_id` | INTEGER FK → `categorias.id` | |
 | `valor` | REAL | |
-| `vencimento` | TEXT | formato `AAAA-MM-DD` |
+| `vencimento` | TEXT | `AAAA-MM-DD` |
 | `data_pagamento` | TEXT | preenchido só quando pago/recebido |
-| `status` | TEXT | `'Pendente'`, `'Pago'`, `'Recebido'`, `'Atrasado'` (ver §3.1 sobre status calculado) |
+| `status` | TEXT | `'Pendente'`, `'Pago'`, `'Recebido'` (ver §3.1 sobre status calculado) |
 | `forma_pagamento` | TEXT | Pix, Boleto, Cartão, Dinheiro, Transferência |
-| `recorrente` | INTEGER | 0/1 — mantido por compatibilidade, ver `frequencia_recorrencia` |
-| `frequencia_recorrencia` | TEXT | `'Nenhuma'`, `'Mensal'`, `'Quinzenal'`, `'Semanal'` (coluna adicionada via migração automática em `criar_tabelas()`) |
-| `observacoes` | TEXT | também usado para marcar origem de integração (ver §4) |
-
-Não há tabela de parcelamento — cada parcela ou ocorrência recorrente é gerada como um novo registro em `lancamentos` (ver §3.3).
+| `recorrente` | INTEGER | 0/1 — derivado automaticamente de `frequencia_recorrencia` |
+| `frequencia_recorrencia` | TEXT | `'Nenhuma'`, `'Mensal'`, `'Quinzenal'`, `'Semanal'` |
+| `observacoes` | TEXT | também marca a origem de integração (ver §5) |
 
 ---
 
 ## 3. Regras de Negócio (`calculos.py`)
 
 ### 3.1 Status "calculado" (Contas a Receber)
-O campo `status` salvo no banco é só `Pendente`/`Pago`/`Recebido`. A tela `/receber` calcula um `status_calculado` em tempo real:
-- **Recebido**: `status` já é `Pago` ou `Recebido`.
-- **Atrasado**: `vencimento` é anterior a hoje e ainda não recebido.
-- **No Prazo**: vencimento futuro (ou hoje) e ainda não recebido.
+O `status` salvo no banco é só `Pendente`/`Pago`/`Recebido`. A tela `/receber` calcula um `status_calculado` em tempo real:
 
-Itens atrasados são agrupados em uma única linha consolidada no topo da lista ("⚠️ Total de Receitas em Atraso"), somando todos os atrasados em vez de listar um por um.
+- **Recebido**: `status` já é `Pago` ou `Recebido`.
+- **Atrasado**: `vencimento` anterior a hoje e ainda não recebido.
+- **No Prazo**: vencimento hoje ou futuro e ainda não recebido.
+
+Itens atrasados **não são listados individualmente** — são somados em uma única linha consolidada no topo ("⚠️ Total de Receitas em Atraso"), com `id = "atraso_consolidado"` e a observação informando quantas contas foram agrupadas.
 
 ### 3.2 Esfera (Empresa / Casa / Todas)
-Filtro salvo na sessão (`session["esfera_filtro"]`), trocado via `/trocar-esfera/<esfera>`. Não é um filtro de segurança/tenant — é apenas uma lente de visualização sobre o mesmo conjunto de dados, disponível para qualquer usuário logado.
+Filtro guardado na sessão (`session["esfera_filtro"]`), trocado via `/trocar-esfera/<esfera>`. É uma lente de visualização sobre os dados **da organização atual** — não é fronteira de segurança. O isolamento real é o `tenant_id`.
 
-### 3.3 Recorrências
-Duas rotinas complementares em `calculos.py`:
-- **`gerar_recorrencias_do_mes(mes_destino)`**: acionada manualmente (botão "Gerar Recorrências") — copia lançamentos `Mensal` do mês anterior para o mês de destino (mantendo o dia do vencimento), e lançamentos `Semanal`/`Quinzenal` avançando a data em blocos de 7/14 dias até cobrir o mês de destino. Evita duplicidade comparando `(descrição, tipo, esfera, valor, vencimento)`.
-- **`projetar_recorrencias_do_mes(dados)`**: acionada automaticamente ao criar/editar um lançamento `Semanal` ou `Quinzenal` — gera de uma vez todas as ocorrências restantes dentro do mesmo mês.
+### 3.3 Listagem e atrasados de meses anteriores
+`listar_lancamentos(...)` inclui, por padrão (`incluir_atrasados_anteriores=True`), lançamentos de meses anteriores que ainda não foram pagos/recebidos. Assim uma conta atrasada não "some" ao virar o mês.
 
-### 3.4 Resumo Financeiro (Dashboard `/`)
-`calcular_resumo_financeiro(esfera, mes_ano)` retorna, para o mês selecionado: total pago/atrasado/a vencer de Pagar e de Receber, saldo atual (recebido − pago) e saldo projetado (receber total − pagar total). `calcular_despesas_por_categoria` agrupa despesas do mês por categoria para o gráfico. `dias_uteis_restantes_no_mes` conta dias úteis (seg–sex) restantes no mês corrente.
+### 3.4 Recorrências
+Duas rotinas complementares:
 
----
+- **`gerar_recorrencias_do_mes(tenant_id, mes_destino)`** — acionada manualmente pelo botão "Gerar Recorrências". Copia lançamentos `Mensal` do mês anterior para o mês de destino (mantendo o dia do vencimento) e avança `Semanal`/`Quinzenal` em blocos de 7/14 dias até cobrir o mês.
+- **`projetar_recorrencias_do_mes(tenant_id, dados)`** — acionada automaticamente ao criar/editar um lançamento `Semanal` ou `Quinzenal`. Gera de uma vez todas as ocorrências restantes dentro do mesmo mês.
 
-## 4. Integração externa (Webhook)
+Ambas evitam duplicidade comparando a chave `(descrição, tipo, esfera, valor, vencimento)`.
 
-`POST /api/v1/receber/webhook` — endpoint público, **sem autenticação**, que cria ou atualiza um lançamento de `Receber` na esfera `Empresa`. Usa `observacoes` para gravar uma tag `ID Ref: {referencia_id}` e localizar o lançamento em atualizações futuras (`buscar_lancamento_por_referencia`). Lançamentos criados por essa via ficam **somente leitura** na interface (edição/exclusão/toggle de status bloqueados quando `observacoes` contém `"ID Ref:"`).
-
-Isso indica que já existe (ou existiu) a intenção de integrar com outro sistema (possivelmente o que gerou a documentação antiga de clínica) — mas hoje o endpoint não tem nenhum controle de origem/autenticação.
+### 3.5 Resumo Financeiro (Dashboard `/`)
+`calcular_resumo_financeiro(tenant_id, esfera, mes_ano)` retorna, para o mês selecionado: total pago/atrasado/a vencer de Pagar e de Receber, **saldo atual** (recebido − pago) e **saldo projetado** (receber total − pagar total). `calcular_despesas_por_categoria` agrupa despesas do mês por categoria para o gráfico. `dias_uteis_restantes_no_mes` conta dias úteis (seg–sex) restantes no mês corrente.
 
 ---
 
-## 5. Módulos / Rotas do Sistema
+## 4. Níveis de acesso
 
+Existem **dois** níveis, e a distinção é importante:
+
+| Nível | Como se identifica | O que pode |
+|---|---|---|
+| **Usuário comum** | `is_admin = 0` | Tudo dentro da própria organização: lançamentos, categorias, perfil, senha |
+| **Admin de plataforma** | `is_admin = 1` | Tudo do usuário comum **+ a área `/admin/tenants`**, que enxerga e gerencia TODAS as organizações |
+
+`is_admin` é permissão de **dona da plataforma**, não de dona da clínica. Por isso o código força `is_admin=0` ao criar organizações e ao adicionar usuários pela tela de admin — a promoção é sempre um ato explícito e separado (`/admin/tenants/.../alternar-admin`).
+
+### 4.1 Salvaguardas implementadas
+
+- Não é possível remover o próprio acesso de admin.
+- Não é possível remover ou excluir o **último** admin da plataforma (`contar_admins() <= 1`).
+- Não é possível excluir a própria conta enquanto logada nela.
+- Não é possível excluir a organização em que se está logada.
+- Excluir uma organização exige **digitar o slug exato** como confirmação, e apaga em cascata usuários, categorias e lançamentos (irreversível).
+
+### 4.2 Convite de novo usuário
+
+`_criar_usuario_com_convite()` gera uma senha temporária (`secrets.token_urlsafe(9)`), cria o usuário com `deve_trocar_senha=1` e envia o convite por email. **Se o envio falhar, a senha temporária é exibida na tela** para repasse manual — o usuário nunca fica criado e inacessível.
+
+No próximo login, `login_required` intercepta qualquer rota e redireciona para `/trocar-senha-obrigatoria` até a troca ser feita (só `logout` escapa).
+
+Configuração do email em `.env` (ver `.env.example`): `GMAIL_USER` e `GMAIL_APP_PASSWORD` (senha de app do Gmail, exige verificação em duas etapas).
+
+---
+
+## 5. Integração externa (Webhook)
+
+`POST /api/v1/receber/webhook` — cria ou atualiza um lançamento de `Receber` na esfera `Empresa`.
+
+**Autenticação**: header `X-Api-Token` com o `api_token` da organização. Token inválido, ausente ou de organização inativa → `401`. O token define em qual tenant o lançamento é gravado — não há tenant no corpo da requisição.
+
+**Idempotência**: o campo `referencia_id` é gravado em `observacoes` como a tag `ID Ref: {referencia_id}`. Em chamadas seguintes, `buscar_lancamento_por_referencia` localiza o lançamento existente e o **atualiza** em vez de duplicar (`201` na criação, `200` na atualização).
+
+**Somente leitura na UI**: lançamentos cujo `observacoes` contém `"ID Ref:"` têm edição, exclusão e troca de status bloqueados na interface — a fonte da verdade é o sistema de origem.
+
+---
+
+## 6. Módulos / Rotas do Sistema
+
+### Autenticação e perfil
 | Rota | Descrição |
 |---|---|
-| `/login`, `/logout` | Autenticação por email/senha, sessão de 8h |
-| `/esqueci-senha`, `/redefinir-senha/<token>` | Recuperação de senha via link assinado (30 min de validade) |
-| `/meu-perfil` | Editar nome, saudação e foto de perfil |
-| `/alterar-senha` | Troca de senha autenticada |
+| `/login`, `/logout` | Login por email/senha, sessão de 8h. Bloqueia acesso se a organização estiver inativa |
+| `/esqueci-senha`, `/redefinir-senha/<token>` | Recuperação via link assinado (`itsdangerous`, 30 min) |
+| `/trocar-senha-obrigatoria` | Troca forçada no primeiro login (usuário convidado) |
+| `/alterar-senha` | Troca de senha autenticada (mínimo 8 caracteres) |
+| `/meu-perfil` | Editar nome, saudação e foto (PNG/JPG/WEBP, salva em pasta própria do tenant) |
+
+### Operação financeira
+| Rota | Descrição |
+|---|---|
+| `/` | Dashboard: resumo do mês, gráfico de despesas por categoria, dias úteis restantes |
 | `/trocar-esfera/<esfera>` | Alterna o filtro Empresa/Casa/Todas |
-| `/` | Dashboard: resumo financeiro do mês, gráfico de despesas por categoria, dias úteis restantes |
-| `/pagar`, `/pagar/novo`, `/pagar/<id>/editar`, `/pagar/<id>/toggle-status`, `/pagar/<id>/excluir` | CRUD de Contas a Pagar |
-| `/receber`, `/receber/novo`, `/receber/<id>/editar`, `/receber/<id>/toggle-status`, `/receber/<id>/excluir` | CRUD de Contas a Receber (com bloqueio de edição para itens sincronizados via webhook) |
-| `/categorias`, `/categorias/nova`, `/categorias/<id>/editar`, `/categorias/<id>/excluir` | CRUD de categorias |
-| `/gerar-recorrencias` | Dispara geração de lançamentos recorrentes para um mês |
-| `/api/v1/receber/webhook` | Integração externa (ver §4) |
+| `/pagar` + `/novo`, `/<id>/editar`, `/<id>/toggle-status`, `/<id>/excluir` | CRUD de Contas a Pagar |
+| `/receber` + `/novo`, `/<id>/editar`, `/<id>/toggle-status`, `/<id>/excluir` | CRUD de Contas a Receber (bloqueado para itens vindos do webhook) |
+| `/categorias` + `/nova`, `/<id>/editar`, `/<id>/excluir` | CRUD de categorias |
+| `/gerar-recorrencias` | Dispara a geração de recorrentes para um mês |
+
+### Administração de plataforma (`@admin_required`)
+| Rota | Descrição |
+|---|---|
+| `/admin/tenants` | Lista todas as organizações e seus usuários |
+| `/admin/tenants/novo` | Cria organização + primeiro usuário (com convite por email) |
+| `/admin/tenants/<id>/editar` | Nome, slug e ativo/inativo |
+| `/admin/tenants/<id>/excluir` | Exclusão em cascata, com confirmação por slug |
+| `/admin/tenants/<id>/novo-usuario` | Adiciona usuário a uma organização existente |
+| `/admin/tenants/<id>/usuarios/<id>/editar`, `/excluir`, `/alternar-admin` | Gestão de usuários |
+| `/admin/tenants/<id>/gerar-token` | Regenera o `api_token` do webhook |
+
+### API
+| Rota | Descrição |
+|---|---|
+| `POST /api/v1/receber/webhook` | Integração externa autenticada por `X-Api-Token` (ver §5) |
 
 ---
 
-## 6. Observações relevantes para evolução do sistema
+## 7. Pontos de atenção para a evolução
 
-- **Não há isolamento multi-tenant hoje** — é a base do plano descrito em [`Plano_Multi_Tenancy.md`](./Plano_Multi_Tenancy.md), que propõe adicionar `tenant_id` em `usuarios`, `categorias` e `lancamentos`.
-- O webhook sem autenticação e as funções de exclusão em massa (`excluir_lancamentos_detalhados_clinica`) são pontos de atenção que o plano de multi-tenancy também endereça (token por tenant, filtro de tenant em toda query).
-- A documentação antiga sobre convênio/Climed/parcelamento em 3x não corresponde ao código atual; se esse escopo ainda for desejado, precisa ser tratado como funcionalidade nova a ser planejada, não como algo já existente.
+1. **Login não pergunta a organização.** `buscar_usuario_por_email(email)` sem `tenant_id` faz `ORDER BY id ASC LIMIT 1`. Como o e-mail é único apenas *por organização*, se a mesma pessoa existir em duas organizações, só a de menor `id` consegue entrar — a segunda conta fica inacessível pelo login. Vale decidir: ou exigir e-mail globalmente único, ou pedir a organização no login.
+
+2. **Limite de tentativas de login não está ativo.** As constantes existem mas não são usadas. Hoje não há proteção contra tentativa de senha por força bruta.
+
+3. **`debug=True` em produção é perigoso.** `app.run(port=5002, debug=True)` expõe o console interativo do Werkzeug. Ver `Agentes/Roteiro_Deploy_PythonAnywhere.md` para o deploy.
+
+4. **`excluir_lancamentos_detalhados_clinica(tenant_id)`** existe em `database.py` mas nenhuma rota a expõe — é uma função de limpeza em massa dos lançamentos vindos do webhook (`ID Ref: clinic_pg_%`), hoje só chamável manualmente.
+
+5. **Recuperação de senha e convite dependem do Gmail SMTP.** Sem `.env` configurado, o convite cai no fallback de exibir a senha na tela; vale confirmar o comportamento de `/esqueci-senha` no mesmo cenário.
+
+---
+
+## 8. Documentos relacionados (`Agentes/`)
+
+- `Plano_Multi_Tenancy.md` — o plano que originou a arquitetura descrita em §1.1 (já executado).
+- `Roteiro_Testes_Multi_Tenancy.md` — roteiro de verificação do isolamento entre organizações.
+- `Roteiro_Deploy_PythonAnywhere.md` — passos de publicação.
+- `Documentacao_Financeiro.md` — cópia espelhada deste documento.
