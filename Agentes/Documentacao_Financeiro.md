@@ -24,7 +24,9 @@ Sistema web (Flask + SQLite) de controle de contas a pagar e a receber, organiza
 
 O isolamento é feito por `tenant_id` em **todas** as tabelas de dados, aplicado na camada de acesso (`database.py`): toda query de leitura, atualização e exclusão carrega `WHERE ... AND tenant_id = ?`. A rota obtém o tenant da sessão via `tenant_atual()`, nunca da URL ou do formulário.
 
-`criar_tabelas()` faz **migração automática** de instalações anteriores ao multi-tenancy: cria um tenant padrão, reconstrói `usuarios` para trocar `UNIQUE(email)` por `UNIQUE(tenant_id, email)`, e adiciona `tenant_id` em `categorias` e `lancamentos`. Também há migrações legadas incrementais para `frequencia_recorrencia`, `is_admin` e `deve_trocar_senha`.
+`criar_tabelas()` faz **migração automática** de instalações anteriores ao multi-tenancy: cria um tenant padrão, reconstrói `usuarios` para trocar `UNIQUE(email)` por `UNIQUE(tenant_id, email)`, e adiciona `tenant_id` em `categorias` e `lancamentos`. Também há migrações legadas incrementais para `frequencia_recorrencia`, `is_admin`, `deve_trocar_senha` e `importancia`.
+
+Uma migração à parte troca o slug automático `padrao` pelo nome da organização em formato de slug ("Acupuntura Bem-estar" → `acupuntura-bem-estar`): o slug deixou de ser detalhe interno e passou a ser digitado no login, e ninguém escolheu "padrao" — ele veio da migração de multi-tenancy. Acentos são removidos, colisões ganham sufixo numérico, e slugs escolhidos por alguém nunca são tocados.
 
 ### 1.2 Segurança
 
@@ -49,7 +51,7 @@ Organizações (clínicas) que usam a plataforma.
 |---|---|---|
 | `id` | INTEGER PK | |
 | `nome` | TEXT | exibido na navbar |
-| `slug` | TEXT UNIQUE | identificador curto; também é a confirmação exigida para excluir a organização |
+| `slug` | TEXT UNIQUE | identificador curto. É **digitado na tela de login** (campo Organização) e serve de confirmação para excluir a organização. Instalações antigas ficaram com o slug automático `padrao`; a migração o substitui pelo nome da organização em formato de slug (ver §1.1) |
 | `ativo` | INTEGER | 0 bloqueia o login de todos os usuários da organização |
 | `criado_em` | TEXT | `datetime('now')` |
 | `api_token` | TEXT UNIQUE | token do webhook (ver §5); gerado na criação e regenerável pelo admin |

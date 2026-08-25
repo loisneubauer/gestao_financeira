@@ -1,6 +1,8 @@
 # database.py - Módulo de Banco de Dados do Gestão Financeira
 import sqlite3
 import os
+import re
+import unicodedata
 
 NOME_DO_BANCO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "financeiro.db")
 
@@ -66,6 +68,42 @@ def _migrar_usuarios_para_multi_tenant(conexao, tenant_id_padrao):
         SELECT id, ?, nome, email, senha_hash, foto_perfil, saudacao, 0, 0 FROM usuarios_legado
     """, (tenant_id_padrao,))
     conexao.execute("DROP TABLE usuarios_legado")
+
+
+def _slug_a_partir_do_nome(nome):
+    """Converte "Acupuntura Bem-estar" em "acupuntura-bem-estar".
+    Tira acentos antes, para "São" virar "sao" e não "s-o"."""
+    sem_acento = unicodedata.normalize("NFKD", nome or "").encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9-]+", "-", sem_acento.strip().lower()).strip("-")
+
+
+def _renomear_slug_padrao(conexao):
+    """Troca o slug automático "padrao" por um derivado do nome da organização.
+
+    O slug virou dado visível: é o que se digita no campo "Organização" da tela
+    de login. "padrao" foi gerado pela migração de multi-tenancy, não escolhido
+    por ninguém, e pedir para alguém digitá-lo seria confuso. Organizações com
+    slug próprio nunca são tocadas."""
+    alvos = conexao.execute("SELECT id, nome FROM tenants WHERE slug = 'padrao'").fetchall()
+    if not alvos:
+        return
+
+    ocupados = {linha["slug"] for linha in conexao.execute("SELECT slug FROM tenants").fetchall()}
+
+    for tenant in alvos:
+        base = _slug_a_partir_do_nome(tenant["nome"])
+        if not base:
+            continue  # nome só de símbolos: melhor manter "padrao" do que gerar lixo
+
+        candidato = base
+        sufixo = 2
+        while candidato in ocupados and candidato != "padrao":
+            candidato = f"{base}-{sufixo}"
+            sufixo += 1
+
+        conexao.execute("UPDATE tenants SET slug = ? WHERE id = ?", (candidato, tenant["id"]))
+        ocupados.discard("padrao")
+        ocupados.add(candidato)
 
 
 def _migrar_coluna_tenant_simples(conexao, tabela, tenant_id_padrao):
@@ -163,6 +201,10 @@ def criar_tabelas():
     if _tabela_existe(conexao, "lancamentos") and not _coluna_existe(conexao, "lancamentos", "frequencia_recorrencia"):
         conexao.execute("ALTER TABLE lancamentos ADD COLUMN frequencia_recorrencia TEXT DEFAULT 'Nenhuma'")
         conexao.execute("UPDATE lancamentos SET frequencia_recorrencia = 'Mensal' WHERE recorrente = 1")
+
+    # Migração: o slug automático "padrao" vira o nome real da organização,
+    # já que agora ele é digitado na tela de login.
+    _renomear_slug_padrao(conexao)
 
     # Migração: coluna importancia (classificação do gasto). Fica NULL nos
     # lançamentos antigos — "Não classificado" no relatório, sem chute.
