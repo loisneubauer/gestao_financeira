@@ -720,9 +720,18 @@ def listar_receber():
         elif vencimento < hoje_str:
             l["status_calculado"] = "Atrasado"
             total_atrasado += valor
-            atrasados_lista.append(l)
-            if not vencimento_mais_recente_atrasado or vencimento > vencimento_mais_recente_atrasado:
-                vencimento_mais_recente_atrasado = vencimento
+            # Só as linhas que vieram da integração com a clínica são
+            # consolidadas: elas se acumulam mês a mês e poluiriam a tela.
+            # Lançamento feito à mão continua aparecendo sozinho, senão some da
+            # lista e não há como corrigir nem excluir — e na esfera Casa não
+            # existe integração nenhuma para justificar o agrupamento.
+            veio_da_integracao = l["observacoes"] and "ID Ref:" in l["observacoes"]
+            if veio_da_integracao:
+                atrasados_lista.append(l)
+                if not vencimento_mais_recente_atrasado or vencimento > vencimento_mais_recente_atrasado:
+                    vencimento_mais_recente_atrasado = vencimento
+            else:
+                lancamentos_normais.append(l)
         else:
             l["status_calculado"] = "No Prazo"
             total_no_prazo += valor
@@ -730,14 +739,15 @@ def listar_receber():
 
     # Se existirem itens em atraso, cria UMA ÚNICA linha consolidada no topo da lista
     lancamentos = []
-    if total_atrasado > 0:
+    total_atrasado_sincronizado = sum(float(a["valor"] or 0) for a in atrasados_lista)
+    if total_atrasado_sincronizado > 0:
         linha_consolidada_atraso = {
             "id": "atraso_consolidado",
             "descricao": "⚠️ Total de Receitas em Atraso (Consolidado)",
             "tipo": "Receber",
             "esfera": esfera_filtro if esfera_filtro != "Todas" else "Empresa",
             "categoria_nome": "Atrasados",
-            "valor": total_atrasado,
+            "valor": total_atrasado_sincronizado,
             "vencimento": vencimento_mais_recente_atrasado or hoje_str,
             "status": "Pendente",
             "status_calculado": "Atrasado",

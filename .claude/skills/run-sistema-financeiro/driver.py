@@ -333,6 +333,24 @@ def cmd_smoke(args):
     checa("listagem carrega", status == 200, f"status {status}")
     checa("mostra receita semeada", "Atendimentos da semana" in html)
 
+    # Conta a receber vencida e lancada a mao precisa continuar editavel: se
+    # for engolida pela linha consolidada de atraso, nao ha como corrigir nem
+    # excluir. Consolidacao existe so para as linhas vindas da clinica.
+    from datetime import timedelta as _td
+    venc_passado = (date.today() - _td(days=5)).isoformat()
+    id_atrasado = database.inserir_lancamento(tid, {
+        "descricao": "Recebivel atrasado lancado a mao", "tipo": "Receber", "esfera": "Casa",
+        "categoria_id": None, "valor": 777.0, "vencimento": venc_passado, "status": "Pendente",
+        "data_pagamento": None, "forma_pagamento": "Transferência",
+        "frequencia_recorrencia": "Nenhuma", "observacoes": ""})
+    c.get("/trocar-esfera/Casa")
+    _, html_casa = c.get("/receber")
+    checa("recebível atrasado manual continua na lista",
+          "Recebivel atrasado lancado a mao" in html_casa)
+    checa("e continua editável", f"modalEditarReceita{id_atrasado}" in html_casa)
+    checa("na Casa não aparece selo de somente leitura", "Somente Leitura" not in html_casa)
+    c.get("/trocar-esfera/Todas")
+
     print("\nWebhook de integração", flush=True)
     status, _ = chamar_webhook(base, {"descricao": "x", "valor": 1}, token=None)
     checa("recusa chamada sem token", status == 401, f"status {status}")

@@ -104,8 +104,14 @@
                             <td class="fw-bold text-success">{{ l.valor | moeda_br }}</td>
                             <td><span class="small text-muted">{{ l.forma_pagamento or '-' }}</span></td>
                             <td>
-                                {% if l.id == 'atraso_consolidado' or (l.observacoes and 'ID Ref:' in l.observacoes) %}
-                                    <span class="badge bg-secondary"><i class="bi bi-lock-fill me-1"></i> Sincronizado (Somente Leitura)</span>
+                                {% if l.id == 'atraso_consolidado' %}
+                                    <span class="badge bg-secondary" title="Soma das receitas atrasadas vindas da clínica — corrija na origem">
+                                        <i class="bi bi-calculator me-1"></i> Somatório
+                                    </span>
+                                {% elif l.observacoes and 'ID Ref:' in l.observacoes %}
+                                    <span class="badge bg-secondary" title="Veio da integração com a clínica; a origem é a fonte da verdade">
+                                        <i class="bi bi-lock-fill me-1"></i> Sincronizado (Somente Leitura)
+                                    </span>
                                 {% else %}
                                     <div class="d-flex align-items-center">
                                         <form method="POST" action="{{ url_for('toggle_status_receber', id_lancamento=l.id) }}" class="me-1">
