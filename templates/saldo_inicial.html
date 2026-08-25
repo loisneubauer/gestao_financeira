@@ -1,59 +1,101 @@
 {% extends "base.html" %}
 
-{% block titulo %}Saldo Inicial de Caixa — Gestão Financeira{% endblock %}
+{% block titulo %}Início do Sistema — Gestão Financeira{% endblock %}
 
 {% block conteudo %}
 <div class="mb-4">
     <h3 class="mb-1 fw-bold" style="color: #4A2E6E;">
-        <i class="bi bi-cash-stack me-2"></i> Saldo Inicial de Caixa
+        <i class="bi bi-flag me-2"></i> Início do Sistema
     </h3>
     <p class="text-muted small mb-0">
-        Quanto havia em caixa antes de o sistema começar a registrar. É o ponto de partida do saldo que atravessa os meses.
+        A partir de quando o controle começa, e quanto havia em caixa nesse dia.
     </p>
 </div>
 
 {% if sucesso %}<div class="alert alert-success">{{ sucesso }}</div>{% endif %}
 {% if erro %}<div class="alert alert-danger">{{ erro }}</div>{% endif %}
 
-<div class="alert alert-light border d-flex align-items-start">
-    <i class="bi bi-info-circle me-2 mt-1 text-primary"></i>
-    <div class="small">
-        O sistema só conhece o que foi lançado nele. Sem informar o que já existia na conta,
-        o saldo mostrado no painel ignora tudo que veio antes.
-        {% if primeiro_lancamento %}
-            <br>O lançamento mais antigo registrado é de <strong>{{ primeiro_lancamento | data_br }}</strong> —
-            uma boa data de referência é o dia anterior a esse.
+<!-- 1. A data que governa tudo -->
+<div class="card shadow-sm border-0 mb-4">
+    <div class="card-header bg-white fw-bold py-3 border-bottom">
+        <i class="bi bi-calendar-check me-2 text-primary"></i> Data de início
+    </div>
+    <div class="card-body">
+        <p class="text-muted small">
+            Nada anterior a essa data entra no caixa, e os meses antes dela não ficam disponíveis
+            para navegar — inclusive as receitas que a clínica já tenha sincronizado de meses passados.
+            Os lançamentos continuam no banco; eles só deixam de ser considerados e exibidos.
+        </p>
+
+        <form method="POST" class="row g-3 align-items-end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="acao" value="data_inicio">
+
+            <div class="col-sm-6 col-md-4">
+                <label class="form-label font-weight-bold">O controle começa em</label>
+                <input type="date" name="data_inicio" class="form-control"
+                       value="{{ data_inicio or '' }}" required>
+            </div>
+            <div class="col-sm-6 col-md-4">
+                <button type="submit" class="btn btn-primary fw-bold w-100">
+                    {% if data_inicio %}Alterar data{% else %}Definir data{% endif %}
+                </button>
+            </div>
+        </form>
+
+        {% if data_inicio %}
+            <p class="small text-muted mb-0 mt-3">
+                <i class="bi bi-check-circle me-1 text-success"></i>
+                Contando desde <strong>{{ data_inicio | data_br }}</strong>.
+            </p>
+        {% elif primeiro_lancamento %}
+            <p class="small text-muted mb-0 mt-3">
+                <i class="bi bi-info-circle me-1 text-primary"></i>
+                Ainda sem data definida — o sistema está somando tudo, desde
+                {{ primeiro_lancamento | data_br }}.
+            </p>
         {% endif %}
-        <br>
-        <strong>Empresa e Casa são contas separadas</strong>, então cada uma tem o seu ponto de partida.
     </div>
 </div>
 
+<!-- 2. Quanto havia em cada conta nesse dia -->
+{% if not data_inicio %}
+    <div class="alert alert-light border">
+        <i class="bi bi-arrow-up me-1 text-primary"></i>
+        Defina a data de início acima para informar os saldos.
+    </div>
+{% else %}
 <div class="row g-4">
     {% for esfera in esferas %}
     {% set atual = saldos.get(esfera) %}
+    {% set atualizado = atual and atual.data_referencia == data_inicio %}
     <div class="col-md-6">
         <div class="card shadow-sm border-0 h-100">
             <div class="card-header bg-white fw-bold py-3 border-bottom d-flex justify-content-between align-items-center">
-                <span>
-                    <span class="badge {% if esfera == 'Empresa' %}badge-empresa{% else %}badge-casa{% endif %} me-1">{{ esfera }}</span>
-                </span>
-                {% if atual %}
+                <span class="badge {% if esfera == 'Empresa' %}badge-empresa{% else %}badge-casa{% endif %}">{{ esfera }}</span>
+                {% if atualizado %}
                     <span class="badge bg-light text-secondary border fw-normal">definido</span>
+                {% elif atual %}
+                    <span class="badge bg-warning text-dark fw-normal">de outra data</span>
                 {% else %}
-                    <span class="badge bg-light text-secondary border fw-normal">ainda não definido</span>
+                    <span class="badge bg-light text-secondary border fw-normal">falta definir</span>
                 {% endif %}
             </div>
             <div class="card-body">
-                {% if atual %}
+                {% if atualizado %}
                     <p class="mb-3">
-                        <span class="d-block text-muted small">Hoje está assim</span>
+                        <span class="d-block text-muted small">Em {{ data_inicio | data_br }} havia</span>
                         <strong class="fs-4">{{ atual.valor | moeda_br }}</strong>
-                        <span class="text-muted small">a partir de {{ atual.data_referencia | data_br }}</span>
+                    </p>
+                {% elif atual %}
+                    <p class="text-warning-emphasis small mb-3">
+                        O valor de {{ atual.valor | moeda_br }} foi informado para
+                        {{ atual.data_referencia | data_br }}, que não é mais a data de início.
+                        Confirme quanto havia em {{ data_inicio | data_br }}.
                     </p>
                 {% else %}
                     <p class="text-muted mb-3">
-                        Sem ponto de partida. O painel está somando apenas o que foi lançado no sistema.
+                        Quanto havia nesta conta em {{ data_inicio | data_br }}?
                     </p>
                 {% endif %}
 
@@ -62,20 +104,14 @@
                     <input type="hidden" name="esfera" value="{{ esfera }}">
 
                     <div class="mb-3">
-                        <label class="form-label font-weight-bold">Quanto havia em caixa (R$)</label>
+                        <label class="form-label font-weight-bold">Saldo em {{ data_inicio | data_br }} (R$)</label>
                         <input type="number" step="0.01" name="valor" class="form-control"
                                value="{{ atual.valor if atual else '' }}" placeholder="0.00" required>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label font-weight-bold">Nessa data</label>
-                        <input type="date" name="data_referencia" class="form-control"
-                               value="{{ atual.data_referencia if atual else '' }}" required>
-                        <div class="form-text">A partir daqui o sistema soma as movimentações.</div>
+                        <div class="form-text">O que o extrato mostrava naquele dia.</div>
                     </div>
 
                     <button type="submit" class="btn btn-primary fw-bold w-100">
-                        {% if atual %}Atualizar{% else %}Definir{% endif %} saldo de {{ esfera }}
+                        {% if atualizado %}Atualizar{% else %}Definir{% endif %} saldo de {{ esfera }}
                     </button>
                 </form>
             </div>
@@ -83,4 +119,5 @@
     </div>
     {% endfor %}
 </div>
+{% endif %}
 {% endblock %}

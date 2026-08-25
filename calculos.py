@@ -79,22 +79,31 @@ def _ultimo_dia_do_mes(mes_ano):
 
 
 def _saldo_de_uma_esfera(tenant_id, esfera, mes_ano):
-    """Saldo de caixa de UMA esfera no mês, com o que veio de antes."""
+    """Saldo de caixa de UMA esfera no mês, com o que veio de antes.
+
+    Nada anterior à data de início da organização entra na conta. Reconstruir o
+    passado conta por conta não era viável, então a Lois decidiu que o sistema
+    começa numa data e o que veio antes fica de fora — inclusive as receitas
+    que a clínica já tinha sincronizado de meses anteriores.
+    """
     iniciais = database.obter_saldos_iniciais(tenant_id)
     inicial = iniciais.get(esfera)
+    data_inicio = database.obter_data_inicio(tenant_id)
 
     primeiro_dia = f"{mes_ano}-01"
     ultimo_dia = _ultimo_dia_do_mes(mes_ano)
 
     if inicial:
         ponto_de_partida = float(inicial["valor"])
-        desde = inicial["data_referencia"]
     else:
-        # Sem ponto de partida informado, começa do zero e soma tudo que existe.
-        # O número fica certo em relação ao que foi lançado, mas ignora o que
-        # havia em caixa antes do sistema — por isso a tela avisa.
+        # Sem ponto de partida informado, começa do zero. O número fica certo em
+        # relação ao que foi lançado, mas ignora o que havia em caixa antes —
+        # por isso a tela avisa.
         ponto_de_partida = 0.0
-        desde = database.data_do_primeiro_lancamento(tenant_id, esfera)
+
+    # De onde somar: da data de início, se houver. Sem ela, do primeiro
+    # lançamento, que é o comportamento de quem ainda não configurou nada.
+    desde = data_inicio or database.data_do_primeiro_lancamento(tenant_id, esfera)
 
     # O que se movimentou entre o ponto de partida e o fim do mês anterior
     entrou_antes, saiu_antes = database.somar_movimentacoes(

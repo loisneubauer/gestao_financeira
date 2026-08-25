@@ -183,6 +183,22 @@ _BASES_DE_DATA = {
 }
 
 
+def obter_data_inicio(tenant_id):
+    """Data em que a organização passou a usar o sistema, ou None se ainda não
+    foi definida. Antes dela, nada conta no caixa e nenhum mês é navegável."""
+    conexao = conectar()
+    linha = conexao.execute("SELECT data_inicio FROM tenants WHERE id = ?", (tenant_id,)).fetchone()
+    conexao.close()
+    return linha["data_inicio"] if linha else None
+
+
+def definir_data_inicio(tenant_id, data_inicio):
+    conexao = conectar()
+    conexao.execute("UPDATE tenants SET data_inicio = ? WHERE id = ?", (data_inicio, tenant_id))
+    conexao.commit()
+    conexao.close()
+
+
 def obter_saldos_iniciais(tenant_id):
     """Devolve {esfera: {'valor': float, 'data_referencia': str}}. Esfera sem
     saldo definido simplesmente não aparece no dicionário."""
@@ -489,6 +505,12 @@ def criar_tabelas():
     if _tabela_existe(conexao, "lancamentos") and not _coluna_existe(conexao, "lancamentos", "frequencia_recorrencia"):
         conexao.execute("ALTER TABLE lancamentos ADD COLUMN frequencia_recorrencia TEXT DEFAULT 'Nenhuma'")
         conexao.execute("UPDATE lancamentos SET frequencia_recorrencia = 'Mensal' WHERE recorrente = 1")
+
+    # Migração: data em que a organização começou a usar o sistema. Antes dela,
+    # nada entra no caixa e nenhum mês é navegável — a Lois decidiu começar do
+    # zero em 01/08/2026 em vez de reconstruir o passado conta por conta.
+    if _tabela_existe(conexao, "tenants") and not _coluna_existe(conexao, "tenants", "data_inicio"):
+        conexao.execute("ALTER TABLE tenants ADD COLUMN data_inicio TEXT")
 
     # Migração: lancamentos.importancia guardava o NOME do nível como texto
     # ("Impulso"). Isso travava a escala: renomear um nível deixaria órfão todo

@@ -138,6 +138,20 @@ def _normalizar_slug(texto):
     return re.sub(r"[^a-z0-9-]+", "-", texto.strip().lower()).strip("-")
 
 
+def _mes_navegavel(mes_pedido):
+    """Impede navegar para antes do início do sistema.
+
+    A organização escolhe uma data de início e o que veio antes fica fora — não
+    dá para reconstruir o passado conta por conta. Mostrar meses anteriores só
+    exibiria números pela metade, então a navegação para lá é travada em vez de
+    devolver dado incompleto. Devolve (mes_exibido, mes_minimo)."""
+    inicio = database.obter_data_inicio(tenant_atual())
+    if not inicio:
+        return mes_pedido, None
+    mes_minimo = inicio[:7]
+    return max(mes_pedido, mes_minimo), mes_minimo
+
+
 def _nivel_importancia_valido(valor):
     """Aceita só os números de nível conhecidos (1 a 4); qualquer outra coisa
     (inclusive vazio) vira None, exibido como "Não classificado".
@@ -429,7 +443,7 @@ def trocar_esfera(nova_esfera):
 @app.route("/")
 @login_required
 def pagina_inicial():
-    mes_ano = request.args.get("mes", date.today().strftime("%Y-%m"))
+    mes_ano, mes_minimo = _mes_navegavel(request.args.get("mes", date.today().strftime("%Y-%m")))
     esfera_filtro = session.get("esfera_filtro", "Todas")
 
     resumo = calculos.calcular_resumo_financeiro(tenant_atual(), esfera_filtro, mes_ano)
@@ -446,6 +460,7 @@ def pagina_inicial():
         saldo=saldo,
         dias_uteis=dias_uteis,
         mes_ano=mes_ano,
+        mes_minimo=mes_minimo,
         esfera_filtro=esfera_filtro
     )
 
@@ -460,6 +475,15 @@ def saldo_inicial():
     Não é @admin_required de propósito: o saldo é da organização e quem usa o
     sistema no dia a dia precisa poder ajustar quando conferir o extrato."""
     if request.method == "POST":
+        # Uma data de início para a organização inteira: é ela que define de
+        # onde o caixa começa a contar e a partir de que mês dá para navegar.
+        if request.form.get("acao") == "data_inicio":
+            data = _data_iso_valida(request.form.get("data_inicio"))
+            if data is None:
+                return redirect(url_for("saldo_inicial", erro="Informe uma data de início válida."))
+            database.definir_data_inicio(tenant_atual(), data)
+            return redirect(url_for("saldo_inicial", sucesso="Data de início atualizada."))
+
         esfera = request.form.get("esfera")
         if esfera not in database.ESFERAS_DE_CAIXA:
             return redirect(url_for("saldo_inicial", erro="Esfera inválida."))
@@ -469,9 +493,12 @@ def saldo_inicial():
             return redirect(url_for("saldo_inicial",
                                     erro="Valor inválido. Use um número com ponto como separador decimal (ex.: 2400.00)."))
 
-        data_ref = _data_iso_valida(request.form.get("data_referencia"))
-        if data_ref is None:
-            return redirect(url_for("saldo_inicial", erro="Informe uma data válida."))
+        # A data de referência do saldo é sempre a data de início da organização
+        # — a Lois pediu um começo só para tudo, não um por esfera.
+        data_ref = database.obter_data_inicio(tenant_atual())
+        if not data_ref:
+            return redirect(url_for("saldo_inicial",
+                                    erro="Defina primeiro a data de início do sistema."))
 
         database.definir_saldo_inicial(tenant_atual(), esfera, valor, data_ref)
         return redirect(url_for("saldo_inicial", sucesso=f"Saldo inicial de {esfera} atualizado."))
@@ -480,6 +507,7 @@ def saldo_inicial():
         "saldo_inicial.html",
         saldos=database.obter_saldos_iniciais(tenant_atual()),
         esferas=database.ESFERAS_DE_CAIXA,
+        data_inicio=database.obter_data_inicio(tenant_atual()),
         primeiro_lancamento=database.data_do_primeiro_lancamento(tenant_atual()),
         sucesso=request.args.get("sucesso"),
         erro=request.args.get("erro"),
@@ -640,7 +668,7 @@ def exportar_lancamentos(tipo):
 @app.route("/pagar")
 @login_required
 def listar_pagar():
-    mes_ano = request.args.get("mes", date.today().strftime("%Y-%m"))
+    mes_ano, mes_minimo = _mes_navegavel(request.args.get("mes", date.today().strftime("%Y-%m")))
     esfera_filtro = session.get("esfera_filtro", "Todas")
 
     lancamentos = database.listar_lancamentos(tenant_atual(), tipo="Pagar", esfera=esfera_filtro, mes_ano=mes_ano)
@@ -663,7 +691,8 @@ def listar_pagar():
             filtro_nivel = None
 
     return render_template("pagar.html", lancamentos=lancamentos, categorias=categorias,
-                           mes_ano=mes_ano, filtro_nivel=filtro_nivel, nome_filtro=nome_filtro,
+                           mes_ano=mes_ano, mes_minimo=mes_minimo,
+                           filtro_nivel=filtro_nivel, nome_filtro=nome_filtro,
                            erro=request.args.get("erro"))
 
 
@@ -762,7 +791,7 @@ def excluir_pagar(id_lancamento):
 @app.route("/receber")
 @login_required
 def listar_receber():
-    mes_ano = request.args.get("mes", date.today().strftime("%Y-%m"))
+    mes_ano, mes_minimo = _mes_navegavel(request.args.get("mes", date.today().strftime("%Y-%m")))
     esfera_filtro = session.get("esfera_filtro", "Todas")
     hoje_str = date.today().isoformat()
 
@@ -841,6 +870,7 @@ def listar_receber():
         lancamentos=lancamentos,
         categorias=categorias,
         mes_ano=mes_ano,
+        mes_minimo=mes_minimo,
         resumo_receber=resumo_receber
     )
 

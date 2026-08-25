@@ -26,7 +26,7 @@
     <!-- Seletor de Mês e Botão de Gerar Recorrências -->
     <div class="d-flex align-items-center mt-2 mt-md-0">
         <form method="GET" class="d-flex align-items-center me-2">
-            <input type="month" name="mes" value="{{ mes_ano }}" class="form-control form-control-sm me-2" onchange="this.form.submit()">
+            <input type="month" name="mes" value="{{ mes_ano }}"{% if mes_minimo %} min="{{ mes_minimo }}"{% endif %} class="form-control form-control-sm me-2" onchange="this.form.submit()">
         </form>
 
         <form method="POST" action="{{ url_for('gerar_recorrencias') }}">

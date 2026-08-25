@@ -467,13 +467,58 @@ def cmd_smoke(args):
 
     status, html_si = c.get("/configuracoes/saldo-inicial")
     checa("tela de saldo inicial abre", status == 200, f"status {status}")
+    # A data de início governa o saldo: sem ela, a tela recusa gravar valor.
     token = c.csrf("/configuracoes/saldo-inicial")
     status, _ = c.post("/configuracoes/saldo-inicial", {
-        "csrf_token": token, "esfera": "Casa", "valor": "1500.00",
-        "data_referencia": "2026-06-01"})
+        "csrf_token": token, "acao": "data_inicio", "data_inicio": "2026-06-01"})
+    checa("salvar a data de início funciona", status == 302, f"status {status}")
+    checa("e a data foi gravada", database.obter_data_inicio(tid) == "2026-06-01")
+
+    token = c.csrf("/configuracoes/saldo-inicial")
+    status, _ = c.post("/configuracoes/saldo-inicial", {
+        "csrf_token": token, "esfera": "Casa", "valor": "1500.00"})
     checa("salvar saldo inicial funciona", status == 302, f"status {status}")
     checa("e o valor foi gravado",
           database.obter_saldos_iniciais(tid)["Casa"]["valor"] == 1500.0)
+
+    print("\nData de início do sistema", flush=True)
+    # A Lois decidiu começar do zero numa data em vez de reconstruir o passado.
+    # Nada anterior pode entrar no caixa nem ficar navegável — inclusive as
+    # receitas que a clínica já sincronizou de meses passados.
+    database.inserir_lancamento(tid, {
+        "descricao": "Receita da clínica de julho", "tipo": "Receber", "esfera": "Empresa",
+        "categoria_id": None, "valor": 6268.0, "vencimento": "2026-07-28",
+        "status": "Recebido", "data_pagamento": "2026-07-28", "forma_pagamento": "Pix",
+        "frequencia_recorrencia": "Nenhuma",
+        "observacoes": "Gerado via Integração Clínica. ID Ref: clinic_resumo_pago_2026-07"})
+
+    database.definir_data_inicio(tid, "2026-08-01")
+    database.definir_saldo_inicial(tid, "Empresa", 5000.0, "2026-08-01")
+
+    emp = calculos.calcular_saldo_do_mes(tid, "Empresa", "2026-08")
+    checa("o saldo parte do valor informado, ignorando o passado",
+          abs(emp["saldo_inicial_periodo"] - 5000.0) < 0.01,
+          f"veio {emp['saldo_inicial_periodo']}")
+    checa("receita da clínica de antes do início não entra no caixa",
+          emp["saldo_inicial_periodo"] == 5000.0, "6268 de julho vazou")
+
+    import re as _re
+    for tela in ["/", "/pagar", "/receber"]:
+        _, html_ant = c.get(f"{tela}?mes=2026-06")
+        m = _re.search(r'name="mes" value="([0-9-]+)"', html_ant)
+        checa(f"{tela} não navega para antes do início",
+              m is not None and m.group(1) == "2026-08", f"mostrou {m.group(1) if m else '?'}")
+
+    _, html_dash = c.get("/")
+    checa("o seletor de mês trava no navegador também", 'min="2026-08"' in html_dash)
+
+    _, html_fut = c.get("/?mes=2026-09")
+    m_fut = _re.search(r'name="mes" value="([0-9-]+)"', html_fut)
+    checa("mês futuro continua livre",
+          m_fut is not None and m_fut.group(1) == "2026-09", f"mostrou {m_fut.group(1) if m_fut else '?'}")
+
+    checa("o lançamento antigo continua no banco, só não conta",
+          any("clínica de julho" in l["descricao"] for l in database.listar_lancamentos(tid)))
 
     print("\nExportação", flush=True)
     status, csv_pagar = c.get("/exportar/Pagar")
