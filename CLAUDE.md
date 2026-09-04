@@ -7,8 +7,10 @@ Existe uma cópia velha em `~/Desktop/gestao_financeira`, parada em 03/08/2026 e
 
 ## Contexto: está em uso real desde 25/08/2026
 
-O sistema atende mais de uma organização. A do Lois e da Laila tem o slug `acupuntura-bem-estar`, e o link de entrada delas é
-`https://sistemafinanceiro.pythonanywhere.com/login?org=acupuntura-bem-estar` (por ele o campo da organização já vem preenchido).
+O sistema atende mais de uma organização. A do Lois e da Laila é **`tenant_id = 1`, "Laila Acupuntura", slug `laila-acupuntura`**, e o link de entrada delas é
+`https://sistemafinanceiro.pythonanywhere.com/login?org=laila-acupuntura` (por ele o campo da organização já vem preenchido).
+
+Há outras organizações no mesmo banco (id 7 "L2 Tecnologia em IA", id 8 "Joge Gourmet"). **Nunca supor que a da clínica é a única.** Em 04/09/2026 a clínica passou dias sincronizando na organização errada porque o token no WSGI dela era de outro tenant — e tudo respondia "sucesso".
 
 Desde 25/08/2026 tem dado de verdade dentro: data de início, saldos iniciais de Empresa e Casa, e os gastos do mês classificados por nível de importância. A partir de setembro a Laila alimenta o sistema no dia a dia.
 
@@ -32,7 +34,7 @@ Sempre que o Lois pedir algo, devo analisar o cenário primeiro e descrever o qu
 ./venv/bin/python .claude/skills/run-sistema-financeiro/driver.py smoke
 ```
 
-Sobe o app num banco temporário, roda **104 checagens** e sai com 0 ou 1. **É a única verificação automatizada do projeto** — não existe suíte de testes nem CI. Rodar depois de qualquer mudança, e acrescentar checagens novas junto com correções, para que fiquem protegidas contra regressão.
+Sobe o app num banco temporário, roda **112 checagens** e sai com 0 ou 1. **É a única verificação automatizada do projeto** — não existe suíte de testes nem CI. Rodar depois de qualquer mudança, e acrescentar checagens novas junto com correções, para que fiquem protegidas contra regressão.
 
 Para olhar a interface: `driver.py serve` sobe com dados de demonstração descartáveis e imprime as credenciais. Detalhes e armadilhas na skill `run-sistema-financeiro`, em `.claude/skills/`.
 
@@ -64,6 +66,7 @@ Não tenho acesso ao servidor. O deploy é feito pelo Lois, em três passos, e d
 - **A integração com a clínica é opcional por organização** (campo `integracao_ativa`). Desligada, o lançamento é manual, como no módulo da Casa.
 - **Fechamento de mês é automático**, de carona na primeira visita ao dashboard depois da virada — sem botão manual. Não há agendador utilizável no PythonAnywhere.
 - Linhas vindas da integração são consolidadas e só-leitura. Lançamentos manuais **nunca** — mesmo em atraso, continuam editáveis.
+- **A tela nunca mostra número da integração sem dizer de quando ele é.** Contas a Receber exibe a data da última sincronização; passados 3 dias vira alerta; organização com histórico e integração desligada vira alerta vermelho. Isso existe porque números velhos com cara de novos custaram uma semana de diagnóstico.
 
 ## O que está pendente
 

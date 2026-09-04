@@ -650,6 +650,48 @@ def cmd_smoke(args):
     status_com, _ = chamar_webhook(base, {"descricao": "y", "valor": 10}, token="tok-sem-integ")
     checa("e o webhook passa a aceitar", status_com in (200, 201), f"status {status_com}")
 
+    print("\nEstado visível da integração", flush=True)
+    # Em 04/09/2026 a clínica passou 8 dias gravando na organização errada e a
+    # tela mostrou números velhos sem nenhum sinal de que eram velhos. Estas
+    # checagens existem para que esse silêncio não volte.
+    _, html_int = c.get("/receber")
+    checa("a tela diz quando foi a última sincronização",
+          "Última sincronização da clínica" in html_int)
+
+    # Envio pelo webhook carimba o instante — é o que alimenta a frase acima.
+    antes = database.obter_ultima_integracao(tid)
+    chamar_webhook(base, {"descricao": "Carimbo", "valor": 1,
+                          "vencimento": date.today().isoformat(), "referencia_id": "clinic_carimbo"})
+    checa("o webhook registra quando recebeu", database.obter_ultima_integracao(tid) != antes or antes is not None)
+
+    # Sincronização parada há dias: o número deixa de ser discreto e vira alerta.
+    con_int = database.conectar()
+    con_int.execute("UPDATE tenants SET ultima_integracao = ? WHERE id = ?",
+                    ((date.today() - timedelta(days=9)).isoformat() + "T10:00:00", tid))
+    con_int.commit(); con_int.close()
+    _, html_velho = c.get("/receber")
+    checa("silêncio de dias vira alerta na tela", "não envia dados há 9 dias" in html_velho,
+          "a tela não reclamou de 9 dias sem sincronizar")
+
+    # Contradição: histórico de integração com a chave desligada = 403 silencioso.
+    database.definir_integracao_ativa(tid, False)
+    _, html_off = c.get("/receber")
+    checa("integração desligada com histórico vira alerta",
+          "os envios estão sendo recusados" in html_off)
+    status_recusa, _ = chamar_webhook(base, {"descricao": "z", "valor": 1})
+    checa("e o webhook realmente recusa (403)", status_recusa == 403, f"status {status_recusa}")
+
+    _, html_admin_off = c.get("/admin/tenants")
+    checa("a tela de organizações denuncia a contradição",
+          "tem histórico mas está recusando envios" in html_admin_off)
+    database.definir_integracao_ativa(tid, True)
+
+    _, html_admin = c.get("/admin/tenants")
+    checa("organizações mostra quando cada uma recebeu dado externo",
+          "último dado externo recebido em" in html_admin)
+    checa("e pede confirmação antes de desligar quem já recebe",
+          "confirmarDesligarIntegracao" in html_admin)
+
     print("\nRecorrências geradas sozinhas", flush=True)
     # Não há agendador: a virada do mês é percebida numa visita ao painel. Estas
     # checagens existem porque o modo de falhar é silencioso — as contas

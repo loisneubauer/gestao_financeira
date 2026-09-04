@@ -176,6 +176,63 @@ def _avisar_recorrencias_geradas(gerados_por_mes):
     return f"{total} lançamento{plural} recorrente{plural} de {meses} gerado{plural} automaticamente."
 
 
+# Quantos dias sem receber dados da clínica antes de a tela reclamar. Três, e
+# não um, porque a clínica não atende todo dia: uma segunda-feira depois de um
+# fim de semana parado não pode virar alarme falso.
+DIAS_ATE_ESTRANHAR_A_INTEGRACAO = 3
+
+
+def _status_da_integracao():
+    """O que dizer na tela de Contas a Receber sobre a integração com a clínica.
+
+    Devolve {'nivel', 'texto'} ou None quando não há nada a dizer.
+
+    Existe por causa de 04/09/2026: a clínica passou oito dias gravando na
+    organização errada e a tela continuou mostrando números de agosto sem nada
+    indicando que eram velhos. Número velho com cara de novo é pior que número
+    nenhum."""
+    tenant_id = tenant_atual()
+    ativa = database.integracao_ativa(tenant_id)
+    tem_historico = database.tem_lancamentos_da_clinica(tenant_id)
+
+    # Contradição: já recebeu dados externos, mas a chave está desligada. O
+    # webhook está devolvendo 403 para cada envio, em silêncio.
+    if tem_historico and not ativa:
+        return {
+            "nivel": "alerta",
+            "texto": "Esta organização já recebeu lançamentos de um sistema externo, mas a "
+                     "integração está DESLIGADA — os envios estão sendo recusados. "
+                     "Ligue em ⚙️ → Organizações se isso não foi intencional.",
+        }
+
+    if not ativa:
+        return None
+
+    ultima = database.obter_ultima_integracao(tenant_id)
+    if not ultima:
+        return {
+            "nivel": "aviso",
+            "texto": "A integração está ligada, mas nenhum dado externo chegou ainda.",
+        }
+
+    quando = datetime.fromisoformat(ultima)
+    dias = (date.today() - quando.date()).days
+    quando_texto = quando.strftime("%d/%m às %H:%M")
+
+    if dias >= DIAS_ATE_ESTRANHAR_A_INTEGRACAO:
+        return {
+            "nivel": "alerta",
+            "texto": f"A clínica não envia dados há {dias} dias — a última vez foi em {quando_texto}. "
+                     "Os valores abaixo podem estar desatualizados.",
+        }
+
+    if dias == 0:
+        quando_texto = f"hoje às {quando.strftime('%H:%M')}"
+    elif dias == 1:
+        quando_texto = f"ontem às {quando.strftime('%H:%M')}"
+    return {"nivel": "ok", "texto": f"Última sincronização da clínica: {quando_texto}."}
+
+
 def _nivel_importancia_valido(valor):
     """Aceita só os números de nível conhecidos (1 a 4); qualquer outra coisa
     (inclusive vazio) vira None, exibido como "Não classificado".
@@ -905,6 +962,7 @@ def listar_receber():
         mes_ano=mes_ano,
         mes_minimo=mes_minimo,
         integracao_ativa=database.integracao_ativa(tenant_atual()),
+        status_integracao=_status_da_integracao(),
         resumo_receber=resumo_receber
     )
 
@@ -1055,7 +1113,13 @@ def excluir_categoria_view(id_categoria):
 def _renderizar_admin_tenants(**kwargs):
     tenants = database.listar_tenants()
     usuarios_por_tenant = {t["id"]: database.listar_usuarios_por_tenant(t["id"]) for t in tenants}
-    return render_template("admin_tenants.html", tenants=tenants, usuarios_por_tenant=usuarios_por_tenant, **kwargs)
+    # Quem já recebeu dados externos alguma vez: desligar a integração dessas
+    # organizações não é uma preferência, é interromper um fluxo em uso — a tela
+    # pede confirmação antes de salvar.
+    historico_clinica = {t["id"]: database.tem_lancamentos_da_clinica(t["id"]) for t in tenants}
+    return render_template("admin_tenants.html", tenants=tenants,
+                           usuarios_por_tenant=usuarios_por_tenant,
+                           historico_clinica=historico_clinica, **kwargs)
 
 
 def _criar_usuario_com_convite(tenant_id, nome_organizacao, nome_usuario, email_usuario, is_admin=0):
@@ -1325,6 +1389,7 @@ def api_webhook_limpar_clinica():
         return jsonify({"erro": "Token de API inválido ou ausente. Envie o header X-Api-Token."}), 401
 
     removidos = database.excluir_lancamentos_da_clinica(tenant["id"])
+    database.registrar_integracao(tenant["id"])
     return jsonify({"sucesso": True, "removidos": removidos}), 200
 
 
@@ -1374,6 +1439,8 @@ def api_webhook_receber():
         "recorrente": 0,
         "observacoes": f"Gerado via Integração Clínica. ID Ref: {ref_id}"
     }
+
+    database.registrar_integracao(tenant["id"])
 
     if existente:
         database.atualizar_lancamento(tenant["id"], existente["id"], dados_lancamento)

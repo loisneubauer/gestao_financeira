@@ -66,6 +66,30 @@
     <div class="card-body">
         <p class="small text-muted mb-2 text-break-token">Token de API (webhook): <code class="text-break-token">{{ t.api_token or "—" }}</code> · Criado em {{ t.criado_em }}</p>
 
+        {# Denuncia dado indo para a organização errada: em 04/09/2026 a clínica
+           sincronizou oito dias inteiros no tenant errado, e nada na tela dizia
+           qual organização estava recebendo. #}
+        <p class="small mb-2">
+            Integração:
+            {% if t.integracao_ativa %}
+                <span class="badge bg-success">ligada</span>
+            {% else %}
+                <span class="badge bg-secondary">desligada</span>
+            {% endif %}
+            {% if t.ultima_integracao %}
+                · último dado externo recebido em
+                <strong>{{ t.ultima_integracao[8:10] }}/{{ t.ultima_integracao[5:7] }}/{{ t.ultima_integracao[:4] }}
+                às {{ t.ultima_integracao[11:16] }}</strong>
+            {% elif t.integracao_ativa %}
+                · <span class="text-muted">nunca recebeu dado externo</span>
+            {% endif %}
+            {% if historico_clinica.get(t.id) and not t.integracao_ativa %}
+                <span class="badge bg-danger ms-1">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i> tem histórico mas está recusando envios
+                </span>
+            {% endif %}
+        </p>
+
         <h6 class="mt-3">Usuários</h6>
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-2 tabela-usuarios">
@@ -187,7 +211,10 @@
 <div class="modal fade" id="modalEditarTenant{{ t.id }}" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="post" action="{{ url_for('admin_editar_tenant', id_tenant=t.id) }}">
+            <form method="post" action="{{ url_for('admin_editar_tenant', id_tenant=t.id) }}"
+                  {% if historico_clinica.get(t.id) and t.integracao_ativa %}
+                  onsubmit="return confirmarDesligarIntegracao(this, '{{ t.nome }}')"
+                  {% endif %}>
                 <div class="modal-header">
                     <h5 class="modal-title">Editar organização</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -255,4 +282,21 @@
 {% else %}
 <div class="text-center text-muted py-4">Nenhuma organização cadastrada.</div>
 {% endfor %}
+
+<script>
+// Desligar a integração de uma organização que JÁ recebe dados externos não é
+// mudar uma preferência: é fazer o sistema de origem passar a levar 403 em todo
+// envio, em silêncio. Em 04/09/2026 isso aconteceu sem ninguém notar por dias.
+function confirmarDesligarIntegracao(formulario, nomeDaOrganizacao) {
+    var caixa = formulario.querySelector("input[name='integracao_ativa']");
+    if (caixa && !caixa.checked) {
+        return confirm(
+            "A organização \"" + nomeDaOrganizacao + "\" já recebe lançamentos de um sistema externo.\n\n" +
+            "Desligando a integração, todo envio passa a ser RECUSADO e os dados param de chegar — " +
+            "sem aviso do outro lado.\n\nDesligar mesmo assim?"
+        );
+    }
+    return true;
+}
+</script>
 {% endblock %}

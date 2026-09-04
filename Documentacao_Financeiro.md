@@ -57,6 +57,7 @@ Organizações (clínicas) que usam a plataforma.
 | `api_token` | TEXT UNIQUE | token do webhook (ver §5); gerado na criação e regenerável pelo admin |
 | `integracao_ativa` | INTEGER | 0/1 — a organização recebe lançamentos de um sistema externo? Ver §5.3 |
 | `data_inicio` | TEXT | `AAAA-MM-DD` — antes dela nada entra no caixa e nenhum mês é navegável. Ver §3.7 |
+| `ultima_integracao` | TEXT | quando a organização recebeu dado externo pela última vez. Gravado a cada chamada do webhook e da limpeza. É o que permite a tela dizer "faz N dias que nada chega" — ver §5.4 |
 
 ### 2.2 `usuarios`
 
@@ -330,6 +331,23 @@ Organização nova nasce **desligada**. A migração liga para quem já tinha la
 
 ---
 
+### 5.4 Estado visível da integração
+
+Toda chamada do webhook (envio ou limpeza) carimba `tenants.ultima_integracao`. A tela `/receber` usa esse carimbo para dizer, **acima dos números**, de quando eles são:
+
+| Situação | O que aparece |
+|---|---|
+| Recebeu hoje/ontem | linha discreta: "Última sincronização da clínica: hoje às 19:39." |
+| Silêncio ≥ 3 dias (`DIAS_ATE_ESTRANHAR_A_INTEGRACAO`) | alerta vermelho com a contagem de dias e a última data |
+| Integração ligada, nada recebido ainda | aviso amarelo |
+| **Tem histórico da clínica e a integração está desligada** | alerta vermelho — o webhook está devolvendo 403 em silêncio |
+
+A tela ⚙️ → Organizações mostra o mesmo carimbo por organização, e desmarcar a integração de quem já recebe dados externos pede confirmação.
+
+**Por que isso existe.** Em 04/09/2026 a integração passou 8 dias gravando na organização errada — o token no WSGI da clínica era de outro tenant. O webhook respondia "sucesso" a cada envio, e a tela da organização certa mostrava números de agosto sem nada indicando que eram velhos. Três dias de diagnóstico por dedução; a consulta ao banco resolveu em trinta segundos. O limite é 3 dias, e não 1, porque a clínica não atende todo dia — segunda-feira depois de um fim de semana parado não pode virar alarme falso.
+
+---
+
 ## 6. Módulos / Rotas do Sistema
 
 ### Autenticação e perfil
@@ -401,7 +419,7 @@ O menu principal ficou só com Dashboard, Contas a Pagar e Contas a Receber (25/
 ./venv/bin/python .claude/skills/run-sistema-financeiro/driver.py smoke
 ```
 
-Sobe o app num banco temporário, exercita 104 checagens e sai com 0 ou 1. **Nunca toca no `financeiro.db` real.** Rodar depois de qualquer mudança.
+Sobe o app num banco temporário, exercita 112 checagens e sai com 0 ou 1. **Nunca toca no `financeiro.db` real.** Rodar depois de qualquer mudança.
 
 `driver.py serve` sobe com dados de demonstração e imprime as credenciais, para inspeção no navegador.
 

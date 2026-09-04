@@ -220,6 +220,39 @@ def definir_data_inicio(tenant_id, data_inicio):
     conexao.close()
 
 
+def registrar_integracao(tenant_id):
+    """Carimba o instante em que a organização recebeu dados de um sistema
+    externo. É o único jeito de a tela conseguir dizer "faz 8 dias que nada
+    chega" em vez de mostrar números velhos com cara de novos."""
+    from datetime import datetime
+    conexao = conectar()
+    conexao.execute("UPDATE tenants SET ultima_integracao = ? WHERE id = ?",
+                    (datetime.now().isoformat(timespec="seconds"), tenant_id))
+    conexao.commit()
+    conexao.close()
+
+
+def obter_ultima_integracao(tenant_id):
+    conexao = conectar()
+    linha = conexao.execute("SELECT ultima_integracao FROM tenants WHERE id = ?", (tenant_id,)).fetchone()
+    conexao.close()
+    return linha["ultima_integracao"] if linha else None
+
+
+def tem_lancamentos_da_clinica(tenant_id):
+    """A organização já recebeu dados de um sistema externo alguma vez?
+
+    Serve para detectar contradição: histórico de integração com a chave
+    desligada significa que envios estão sendo recusados agora."""
+    conexao = conectar()
+    linha = conexao.execute(
+        "SELECT 1 FROM lancamentos WHERE tenant_id = ? AND observacoes LIKE '%ID Ref: clinic_%' LIMIT 1",
+        (tenant_id,)
+    ).fetchone()
+    conexao.close()
+    return linha is not None
+
+
 def meses_com_recorrencias_geradas(tenant_id):
     """Conjunto dos meses ('AAAA-MM') que já tiveram sua geração feita."""
     conexao = conectar()
@@ -642,6 +675,13 @@ def criar_tabelas():
     # Migração legada: coluna deve_trocar_senha (força troca de senha no próximo login)
     if _tabela_existe(conexao, "usuarios") and not _coluna_existe(conexao, "usuarios", "deve_trocar_senha"):
         conexao.execute("ALTER TABLE usuarios ADD COLUMN deve_trocar_senha INTEGER NOT NULL DEFAULT 0")
+
+    # Migração: quando cada organização recebeu dados externos pela última vez.
+    # Em 04/09/2026 a integração da clínica passou 8 dias gravando na
+    # organização errada (token de outro tenant) e ninguém percebeu: a tela
+    # mostrava números velhos sem nada indicando que eram velhos.
+    if _tabela_existe(conexao, "tenants") and not _coluna_existe(conexao, "tenants", "ultima_integracao"):
+        conexao.execute("ALTER TABLE tenants ADD COLUMN ultima_integracao TEXT")
 
     # Migração: a geração automática vale daqui para frente, nunca para trás.
     # Todo mês até o corrente nasce marcado como já gerado.
