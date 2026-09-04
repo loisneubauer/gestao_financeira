@@ -3,9 +3,10 @@
 {% block titulo %}Dashboard Financeiro — Gestão Financeira{% endblock %}
 
 {% block conteudo %}
-{% if request.args.get('aviso') %}
+{% set aviso = aviso_recorrencias or request.args.get('aviso') %}
+{% if aviso %}
     <div class="alert alert-success alert-dismissible fade show mb-4" role="alert">
-        <i class="bi bi-check-circle-fill me-2"></i> {{ request.args.get('aviso') }}
+        <i class="bi bi-check-circle-fill me-2"></i> {{ aviso }}
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     </div>
 {% endif %}
@@ -23,17 +24,11 @@
         </p>
     </div>
 
-    <!-- Seletor de Mês e Botão de Gerar Recorrências -->
+    <!-- Seletor de Mês. As recorrências são geradas sozinhas na virada do mês,
+         então não existe botão para isso. -->
     <div class="d-flex align-items-center mt-2 mt-md-0">
-        <form method="GET" class="d-flex align-items-center me-2">
-            <input type="month" name="mes" value="{{ mes_ano }}"{% if mes_minimo %} min="{{ mes_minimo }}"{% endif %} class="form-control form-control-sm me-2" onchange="this.form.submit()">
-        </form>
-
-        <form method="POST" action="{{ url_for('gerar_recorrencias') }}">
-            <input type="hidden" name="mes_destino" value="{{ mes_ano }}">
-            <button type="submit" class="btn btn-outline-primary btn-sm fw-bold">
-                <i class="bi bi-arrow-repeat me-1"></i> Gerar Recorrências
-            </button>
+        <form method="GET" class="d-flex align-items-center">
+            <input type="month" name="mes" value="{{ mes_ano }}"{% if mes_minimo %} min="{{ mes_minimo }}"{% endif %} class="form-control form-control-sm" onchange="this.form.submit()">
         </form>
     </div>
 </div>

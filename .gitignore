@@ -18,3 +18,6 @@ static/uploads/
 
 # Worktrees temporarios criados por agentes executores
 .claude/worktrees/
+
+# Saidas do Playwright (teste visual)
+.playwright-mcp/

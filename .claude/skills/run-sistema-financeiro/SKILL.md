@@ -32,7 +32,7 @@ Num clone limpo não existem `.secret_key` nem `financeiro.db` — os dois são 
 ./venv/bin/python .claude/skills/run-sistema-financeiro/driver.py smoke
 ```
 
-Sobe o app, exercita **93 checagens** e sai com **0** se tudo passou, **1** se algo falhou. Leva poucos segundos. Cobre login com organização e rate limit, dashboard, saldo de caixa que atravessa o mês, data de início, CRUD de contas a pagar com nível de importância, filtro por nível, exportação CSV, recusa de POST sem CSRF, webhook autenticado e idempotente, integração ligada/desligada por organização, tabela de importância editável, área de admin e logout.
+Sobe o app, exercita **104 checagens** e sai com **0** se tudo passou, **1** se algo falhou. Leva poucos segundos. Cobre login com organização e rate limit, dashboard, saldo de caixa que atravessa o mês, data de início, CRUD de contas a pagar com nível de importância, filtro por nível, exportação CSV, recusa de POST sem CSRF, webhook autenticado e idempotente, integração ligada/desligada por organização, tabela de importância editável, geração automática de recorrências na virada do mês (inclusive a garantia de que conta apagada de propósito não volta), marca de linha vinda de mês anterior, área de admin e logout.
 
 Saída real:
 
@@ -44,7 +44,7 @@ Autenticação
   [ ok ] login com organização + email + senha
   [ ok ] dashboard carrega
   ...
-todas as 93 checagens passaram
+todas as 104 checagens passaram
 ```
 
 **Este é o único teste automatizado do projeto** — não existe suíte de testes nem CI. Rode depois de qualquer mudança.

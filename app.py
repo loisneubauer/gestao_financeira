@@ -163,6 +163,19 @@ def _mes_navegavel(mes_pedido):
     return max(mes_pedido, mes_minimo), mes_minimo
 
 
+def _avisar_recorrencias_geradas(gerados_por_mes):
+    """Frase de aviso da geração automática, ou None quando nada foi gerado.
+
+    Existe porque a geração é silenciosa por natureza: sem uma linha na tela, as
+    contas do mês aparecem do nada e ninguém sabe de onde vieram."""
+    if not gerados_por_mes:
+        return None
+    total = sum(gerados_por_mes.values())
+    meses = ", ".join(f"{m[5:]}/{m[:4]}" for m in sorted(gerados_por_mes))
+    plural = "s" if total > 1 else ""
+    return f"{total} lançamento{plural} recorrente{plural} de {meses} gerado{plural} automaticamente."
+
+
 def _nivel_importancia_valido(valor):
     """Aceita só os números de nível conhecidos (1 a 4); qualquer outra coisa
     (inclusive vazio) vira None, exibido como "Não classificado".
@@ -457,6 +470,14 @@ def pagina_inicial():
     mes_ano, mes_minimo = _mes_navegavel(request.args.get("mes", date.today().strftime("%Y-%m")))
     esfera_filtro = session.get("esfera_filtro", "Todas")
 
+    # De carona na visita ao painel: não existe agendador utilizável, então é
+    # aqui que a virada do mês é percebida. Vale para o mês corrente, não para o
+    # mês que estiver na tela — quem está olhando agosto também precisa que
+    # setembro tenha nascido.
+    aviso_recorrencias = _avisar_recorrencias_geradas(
+        calculos.gerar_recorrencias_pendentes(tenant_atual())
+    )
+
     resumo = calculos.calcular_resumo_financeiro(tenant_atual(), esfera_filtro, mes_ano)
     despesas_categorias = calculos.calcular_despesas_por_categoria(tenant_atual(), esfera_filtro, mes_ano)
     importancia = calculos.calcular_gastos_por_importancia(tenant_atual(), esfera_filtro, mes_ano)
@@ -472,7 +493,8 @@ def pagina_inicial():
         dias_uteis=dias_uteis,
         mes_ano=mes_ano,
         mes_minimo=mes_minimo,
-        esfera_filtro=esfera_filtro
+        esfera_filtro=esfera_filtro,
+        aviso_recorrencias=aviso_recorrencias
     )
 
 
@@ -1023,12 +1045,9 @@ def excluir_categoria_view(id_categoria):
     return redirect(url_for("listar_categorias_view"))
 
 
-@app.route("/gerar-recorrencias", methods=["POST"])
-@login_required
-def gerar_recorrencias():
-    mes_destino = request.form.get("mes_destino", date.today().strftime("%Y-%m"))
-    qtd = calculos.gerar_recorrencias_do_mes(tenant_atual(), mes_destino)
-    return redirect(url_for("pagina_inicial", mes=mes_destino, aviso=f"{qtd} despesas recorrentes geradas!"))
+# A rota /gerar-recorrencias e o botão "Gerar Recorrências" foram removidos em
+# 04/09/2026: a geração passou a ser automática na visita ao painel. Um botão
+# que repete o que já acontece sozinho só gera dúvida sobre se precisa clicar.
 
 
 # ===== ADMINISTRAÇÃO DE TENANTS (multi-tenancy) =====

@@ -220,6 +220,54 @@ def definir_data_inicio(tenant_id, data_inicio):
     conexao.close()
 
 
+def meses_com_recorrencias_geradas(tenant_id):
+    """Conjunto dos meses ('AAAA-MM') que já tiveram sua geração feita."""
+    conexao = conectar()
+    linhas = conexao.execute(
+        "SELECT mes FROM recorrencias_geradas WHERE tenant_id = ?", (tenant_id,)
+    ).fetchall()
+    conexao.close()
+    return {l["mes"] for l in linhas}
+
+
+def reservar_geracao_de_recorrencias(tenant_id, mes):
+    """Marca o mês como gerado ANTES de gerar, e devolve True só para quem
+    conseguiu marcar.
+
+    A ordem importa: duas abas abertas ao mesmo tempo disparariam a geração em
+    paralelo, e a checagem de duplicidade do gerador é feita em memória, não no
+    banco — as duas passariam. Reservando primeiro, a segunda desiste."""
+    conexao = conectar()
+    cursor = conexao.execute("""
+        INSERT OR IGNORE INTO recorrencias_geradas (tenant_id, mes, gerado_em, quantidade)
+        VALUES (?, ?, date('now'), 0)
+    """, (tenant_id, mes))
+    conexao.commit()
+    conexao.close()
+    return cursor.rowcount > 0
+
+
+def registrar_quantidade_gerada(tenant_id, mes, quantidade):
+    conexao = conectar()
+    conexao.execute(
+        "UPDATE recorrencias_geradas SET quantidade = ? WHERE tenant_id = ? AND mes = ?",
+        (quantidade, tenant_id, mes)
+    )
+    conexao.commit()
+    conexao.close()
+
+
+def devolver_reserva_de_recorrencias(tenant_id, mes):
+    """Desfaz a reserva quando a geração falhou, para a próxima visita tentar
+    de novo em vez de dar o mês por feito."""
+    conexao = conectar()
+    conexao.execute(
+        "DELETE FROM recorrencias_geradas WHERE tenant_id = ? AND mes = ?", (tenant_id, mes)
+    )
+    conexao.commit()
+    conexao.close()
+
+
 def obter_saldos_iniciais(tenant_id):
     """Devolve {esfera: {'valor': float, 'data_referencia': str}}. Esfera sem
     saldo definido simplesmente não aparece no dicionário."""
@@ -491,6 +539,20 @@ def criar_tabelas():
         )
     """)
 
+    # Registro de que mês já teve suas recorrências geradas. Existe por um
+    # motivo só: sem ele, a geração automática ressuscitaria na visita seguinte
+    # toda conta recorrente que a organização apagasse de propósito.
+    conexao.execute("""
+        CREATE TABLE IF NOT EXISTS recorrencias_geradas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER NOT NULL REFERENCES tenants (id),
+            mes TEXT NOT NULL,               -- AAAA-MM
+            gerado_em TEXT NOT NULL,         -- AAAA-MM-DD da geração
+            quantidade INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (tenant_id, mes)
+        )
+    """)
+
     # Tabela de Usuários para Login e Perfil
     conexao.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
@@ -580,6 +642,32 @@ def criar_tabelas():
     # Migração legada: coluna deve_trocar_senha (força troca de senha no próximo login)
     if _tabela_existe(conexao, "usuarios") and not _coluna_existe(conexao, "usuarios", "deve_trocar_senha"):
         conexao.execute("ALTER TABLE usuarios ADD COLUMN deve_trocar_senha INTEGER NOT NULL DEFAULT 0")
+
+    # Migração: a geração automática vale daqui para frente, nunca para trás.
+    # Todo mês até o corrente nasce marcado como já gerado.
+    #
+    # Marcar só os meses que têm recorrente seria pior: um mês em que a
+    # organização apagou de propósito as contas de um serviço cancelado ficaria
+    # sem marca, e a primeira visita ao painel traria tudo de volta.
+    if _tabela_existe(conexao, "tenants") and _coluna_existe(conexao, "tenants", "data_inicio"):
+        mes_corrente = conexao.execute("SELECT strftime('%Y-%m', 'now') AS m").fetchone()["m"]
+        for org in conexao.execute("SELECT id, data_inicio FROM tenants").fetchall():
+            inicio = org["data_inicio"]
+            if not inicio:
+                primeiro = conexao.execute(
+                    "SELECT MIN(vencimento) AS m FROM lancamentos WHERE tenant_id = ?", (org["id"],)
+                ).fetchone()
+                inicio = primeiro["m"] if primeiro else None
+            if not inicio:
+                continue
+            mes = inicio[:7]
+            while mes <= mes_corrente:
+                conexao.execute("""
+                    INSERT OR IGNORE INTO recorrencias_geradas (tenant_id, mes, gerado_em, quantidade)
+                    VALUES (?, ?, date('now'), 0)
+                """, (org["id"], mes))
+                ano, numero = map(int, mes.split("-"))
+                mes = f"{ano + 1:04d}-01" if numero == 12 else f"{ano:04d}-{numero + 1:02d}"
 
     conexao.commit()
     conexao.close()

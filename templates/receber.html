@@ -70,6 +70,10 @@
                     </thead>
                     <tbody>
                         {% for l in lancamentos %}
+                        {# Linha de mês anterior, trazida por estar em aberto: editar ou
+                           excluir aqui mexe no lançamento do mês de origem, não neste. #}
+                        {% set de_outro_mes = l.vencimento[:7] < mes_ano %}
+                        {% set mes_de_origem = l.vencimento[5:7] ~ '/' ~ l.vencimento[:4] %}
                         <tr class="{% if l.status_calculado == 'Recebido' %}table-success opacity-75{% elif l.status_calculado == 'Atrasado' %}table-danger{% endif %}">
                             <td>
                                 {% if l.status_calculado == 'Recebido' %}
@@ -81,7 +85,14 @@
                                 {% endif %}
                             </td>
 
-                            <td class="fw-semibold">{{ l.vencimento | data_br }}</td>
+                            <td class="fw-semibold">
+                                {{ l.vencimento | data_br }}
+                                {% if de_outro_mes %}
+                                    <span class="badge bg-dark d-inline-block mt-1" title="Esta receita é de {{ mes_de_origem }} e aparece aqui por estar em aberto. Editar ou excluir mexe no lançamento de {{ mes_de_origem }}.">
+                                        <i class="bi bi-exclamation-triangle-fill me-1"></i> de {{ mes_de_origem }}
+                                    </span>
+                                {% endif %}
+                            </td>
                             <td>
                                 <strong>{{ l.descricao }}</strong>
                                 {% if l.recorrente == 1 or (l.frequencia_recorrencia and l.frequencia_recorrencia != 'Nenhuma') %}
@@ -128,7 +139,8 @@
                                         </button>
 
                                         <!-- Botão Excluir -->
-                                        <form method="POST" action="{{ url_for('excluir_receber', id_lancamento=l.id) }}" onsubmit="return confirm('Excluir esta receita?')">
+                                        {% set pergunta_excluir = ('Atenção: esta receita é de ' ~ mes_de_origem ~ ', não deste mês. Ela aparece aqui só por estar em aberto. Excluir apaga o lançamento de ' ~ mes_de_origem ~ '. Confirma?') if de_outro_mes else 'Excluir esta receita?' %}
+                                        <form method="POST" action="{{ url_for('excluir_receber', id_lancamento=l.id) }}" onsubmit="return confirm('{{ pergunta_excluir }}')">
                                             <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir" aria-label="Excluir Receita"><i class="bi bi-trash"></i></button>
                                         </form>
                                     </div>

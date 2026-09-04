@@ -75,7 +75,12 @@
                         {% set freq = l.frequencia_recorrencia or ('Mensal' if eh_recorrente else 'Nenhuma') %}
                         {% set rank_freq = {'Semanal': 3, 'Quinzenal': 2, 'Mensal': 1, 'Nenhuma': 0}[freq] %}
                         {% set rank_importancia = l.importancia_nivel or 0 %}
-                        <tr class="{% if l.status == 'Pago' %}table-success opacity-75{% endif %}"
+                        {# A lista do mês também traz o que venceu antes e não foi pago, para
+                           nada em atraso ser esquecido. Sem marcar essas linhas, elas parecem
+                           deste mês — e apagar uma delas apaga o registro do mês original. #}
+                        {% set de_outro_mes = l.vencimento[:7] < mes_ano %}
+                        {% set mes_de_origem = l.vencimento[5:7] ~ '/' ~ l.vencimento[:4] %}
+                        <tr class="{% if l.status == 'Pago' %}table-success opacity-75{% elif de_outro_mes %}table-warning{% endif %}"
                             data-status="{{ l.status }}"
                             data-vencimento="{{ l.vencimento }}"
                             data-descricao="{{ l.descricao | lower }}"
@@ -92,7 +97,14 @@
                                     <span class="badge bg-warning text-dark"><i class="bi bi-clock me-1"></i> Pendente</span>
                                 {% endif %}
                             </td>
-                            <td class="fw-semibold">{{ l.vencimento | data_br }}</td>
+                            <td class="fw-semibold">
+                                {{ l.vencimento | data_br }}
+                                {% if de_outro_mes %}
+                                    <span class="badge bg-danger d-inline-block mt-1" title="Esta conta é de {{ mes_de_origem }} e aparece aqui por estar em aberto. Editar ou excluir mexe no lançamento de {{ mes_de_origem }}.">
+                                        <i class="bi bi-exclamation-triangle-fill me-1"></i> de {{ mes_de_origem }}
+                                    </span>
+                                {% endif %}
+                            </td>
                             <td><strong>{{ l.descricao }}</strong></td>
                             <td>
                                 {% if eh_recorrente %}
@@ -140,7 +152,8 @@
                                     </button>
 
                                     <!-- Botão Excluir -->
-                                    <form method="POST" action="{{ url_for('excluir_pagar', id_lancamento=l.id) }}" onsubmit="return confirm('Excluir esta conta?')">
+                                    {% set pergunta_excluir = ('Atenção: esta conta é de ' ~ mes_de_origem ~ ', não deste mês. Ela aparece aqui só por estar em aberto. Excluir apaga o lançamento de ' ~ mes_de_origem ~ '. Confirma?') if de_outro_mes else 'Excluir esta conta?' %}
+                                    <form method="POST" action="{{ url_for('excluir_pagar', id_lancamento=l.id) }}" onsubmit="return confirm('{{ pergunta_excluir }}')">
                                         <button type="submit" class="btn btn-sm btn-outline-danger" title="Excluir" aria-label="Excluir Conta"><i class="bi bi-trash"></i></button>
                                     </form>
                                 </div>

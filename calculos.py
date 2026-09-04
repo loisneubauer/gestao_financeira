@@ -408,6 +408,62 @@ def gerar_recorrencias_do_mes(tenant_id, mes_destino_str):
     return novos_gerados
 
 
+# Teto de meses que a geração automática aceita recuperar de uma vez. Existe só
+# como cinto de segurança: uma data de início muito antiga não pode fazer uma
+# visita ao painel varrer anos de calendário.
+MAXIMO_DE_MESES_A_RECUPERAR = 12
+
+
+def _mes_seguinte(mes_str):
+    ano, mes = map(int, mes_str.split("-"))
+    return f"{ano + 1:04d}-01" if mes == 12 else f"{ano:04d}-{mes + 1:02d}"
+
+
+def gerar_recorrencias_pendentes(tenant_id, mes_corrente=None):
+    """Gera as recorrências de todos os meses que ainda não foram gerados, até o
+    mês corrente. Devolve {mes: quantidade} só dos meses que produziram algo.
+
+    Roda de carona numa visita ao painel, porque não há agendador utilizável.
+    Percorre mês a mês em vez de cuidar só do corrente para que um mês sem
+    ninguém abrir o sistema não arrebente a corrente: cada mês continua copiando
+    do seu anterior, então pular um deixaria o seguinte sem origem.
+
+    Nunca refaz um mês já gerado — é isso que impede uma conta apagada de
+    propósito de voltar sozinha na visita seguinte."""
+    from datetime import date
+
+    mes_corrente = mes_corrente or date.today().strftime("%Y-%m")
+
+    # O primeiro mês do sistema não tem de onde copiar: o mês anterior a ele
+    # está fora do período que a organização escolheu enxergar.
+    inicio = database.obter_data_inicio(tenant_id) or database.data_do_primeiro_lancamento(tenant_id)
+    if not inicio:
+        return {}
+
+    ja_gerados = database.meses_com_recorrencias_geradas(tenant_id)
+    gerados_agora = {}
+
+    mes = _mes_seguinte(inicio[:7])
+    for _ in range(MAXIMO_DE_MESES_A_RECUPERAR):
+        if mes > mes_corrente:
+            break
+        if mes not in ja_gerados and database.reservar_geracao_de_recorrencias(tenant_id, mes):
+            try:
+                quantidade = gerar_recorrencias_do_mes(tenant_id, mes)
+            except Exception as erro:
+                # A reserva volta para a prateleira: dar o mês por feito depois
+                # de uma falha esconderia as contas para sempre.
+                database.devolver_reserva_de_recorrencias(tenant_id, mes)
+                print(f"Falha ao gerar recorrências de {mes}: {erro}", flush=True)
+            else:
+                database.registrar_quantidade_gerada(tenant_id, mes, quantidade)
+                if quantidade:
+                    gerados_agora[mes] = quantidade
+        mes = _mes_seguinte(mes)
+
+    return gerados_agora
+
+
 def projetar_recorrencias_do_mes(tenant_id, dados):
     """
     Quando um lançamento é criado ou editado com recorrência Semanal ou Quinzenal,

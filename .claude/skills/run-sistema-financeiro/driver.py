@@ -94,6 +94,19 @@ def semear(database):
             "observacoes": "", "importancia_nivel": nivel,
         })
 
+    # Conta do mês passado ainda em aberto. Aparece na lista deste mês marcada
+    # "de MM/AAAA" — sem ela não dá para ver no navegador a marca que impede
+    # alguém de apagar, daqui, o lançamento do mês de origem. É também a origem
+    # das recorrências que o painel gera sozinho na virada do mês.
+    mes_passado = date.today().replace(day=1) - timedelta(days=1)
+    database.inserir_lancamento(tid, {
+        "descricao": "Plano de telefonia", "tipo": "Pagar", "esfera": "Empresa",
+        "categoria_id": categorias.get("Insumos"), "valor": 180.00,
+        "vencimento": mes_passado.replace(day=20).isoformat(), "status": "Pendente",
+        "data_pagamento": None, "forma_pagamento": "Boleto",
+        "frequencia_recorrencia": "Mensal", "observacoes": "", "importancia_nivel": 2,
+    })
+
     for descricao, valor, dia, status in [
         ("Atendimentos da semana 1", 3200.00, 7, "Recebido"),
         ("Atendimentos da semana 2", 2850.00, 14, "Pendente"),
@@ -636,6 +649,91 @@ def cmd_smoke(args):
     checa("ligando a integração, o selo volta", "Somente Leitura" in html_com)
     status_com, _ = chamar_webhook(base, {"descricao": "y", "valor": 10}, token="tok-sem-integ")
     checa("e o webhook passa a aceitar", status_com in (200, 201), f"status {status_com}")
+
+    print("\nRecorrências geradas sozinhas", flush=True)
+    # Não há agendador: a virada do mês é percebida numa visita ao painel. Estas
+    # checagens existem porque o modo de falhar é silencioso — as contas
+    # simplesmente não aparecem, e ninguém é avisado.
+    import calculos as _calc
+    from werkzeug.security import generate_password_hash as _hash3
+
+    def _mes_atras(quantos):
+        ano, mes = date.today().year, date.today().month - quantos
+        while mes <= 0:
+            mes += 12
+            ano -= 1
+        return f"{ano:04d}-{mes:02d}"
+
+    mes_hoje, mes_1, mes_2 = _mes_atras(0), _mes_atras(1), _mes_atras(2)
+
+    tid_rec = database.criar_tenant("Recorrentes", "recorrentes")
+    database.criar_usuario(tid_rec, "R", "r@ex.com", _hash3("senha1234"), is_admin=1)
+    database.definir_data_inicio(tid_rec, f"{mes_2}-01")
+    database.inserir_lancamento(tid_rec, {
+        "descricao": "Aluguel recorrente", "tipo": "Pagar", "esfera": "Empresa",
+        "categoria_id": None, "valor": 1000.0, "vencimento": f"{mes_2}-05",
+        "status": "Pago", "data_pagamento": f"{mes_2}-05", "forma_pagamento": "Pix",
+        "frequencia_recorrencia": "Mensal", "observacoes": "", "importancia_nivel": 1})
+    database.inserir_lancamento(tid_rec, {
+        "descricao": "Compra avulsa", "tipo": "Pagar", "esfera": "Empresa",
+        "categoria_id": None, "valor": 50.0, "vencimento": f"{mes_2}-08",
+        "status": "Pago", "data_pagamento": f"{mes_2}-08", "forma_pagamento": "Pix",
+        "frequencia_recorrencia": "Nenhuma", "observacoes": "", "importancia_nivel": 3})
+
+    gerados = _calc.gerar_recorrencias_pendentes(tid_rec, mes_hoje)
+    checa("põe em dia os meses que ficaram para trás", set(gerados) == {mes_1, mes_hoje},
+          f"gerou {sorted(gerados)}, esperado {[mes_1, mes_hoje]}")
+    descricoes_mes = [l["descricao"] for l in database.listar_lancamentos(
+        tid_rec, mes_ano=mes_hoje, incluir_atrasados_anteriores=False)]
+    checa("a conta recorrente chega ao mês corrente", "Aluguel recorrente" in descricoes_mes)
+    checa("a conta avulsa não é copiada", "Compra avulsa" not in descricoes_mes)
+
+    checa("rodar de novo não gera nada", _calc.gerar_recorrencias_pendentes(tid_rec, mes_hoje) == {})
+
+    # O ponto mais importante: uma conta apagada de propósito (serviço
+    # cancelado) não pode voltar sozinha na visita seguinte ao painel.
+    apagar = [l for l in database.listar_lancamentos(tid_rec, mes_ano=mes_hoje,
+                                                     incluir_atrasados_anteriores=False)
+              if l["descricao"] == "Aluguel recorrente"][0]
+    database.excluir_lancamento(tid_rec, apagar["id"])
+    _calc.gerar_recorrencias_pendentes(tid_rec, mes_hoje)
+    voltou = [l["descricao"] for l in database.listar_lancamentos(
+        tid_rec, mes_ano=mes_hoje, incluir_atrasados_anteriores=False)]
+    checa("conta apagada de propósito não ressuscita", "Aluguel recorrente" not in voltou)
+
+    # Organização nova, para conferir o caminho de verdade: pela tela.
+    tid_tela = database.criar_tenant("Pela Tela", "pela-tela")
+    database.criar_usuario(tid_tela, "T", "t@ex.com", _hash3("senha1234"), is_admin=1)
+    database.definir_data_inicio(tid_tela, f"{mes_1}-01")
+    database.inserir_lancamento(tid_tela, {
+        "descricao": "Internet recorrente", "tipo": "Pagar", "esfera": "Empresa",
+        "categoria_id": None, "valor": 150.0, "vencimento": f"{mes_1}-10",
+        "status": "Pendente", "forma_pagamento": "Boleto",
+        "frequencia_recorrencia": "Mensal", "observacoes": "", "importancia_nivel": 2})
+
+    c_rec = Cliente(base)
+    c_rec.post("/login", {"organizacao": "pela-tela", "email": "t@ex.com", "senha": "senha1234"})
+    _, html_rec = c_rec.get("/")
+    checa("visitar o painel gera as recorrências", "gerado automaticamente" in html_rec)
+    _, html_rec2 = c_rec.get("/")
+    checa("e a segunda visita não avisa de novo", "gerado automaticamente" not in html_rec2)
+
+    # A conta de mês anterior aparece na lista deste mês por estar em aberto.
+    # Sem marca visível, apagá-la ali apaga o registro do mês de origem — foi
+    # assim que a Lois perdeu lançamentos em 04/09/2026.
+    _, html_pagar = c_rec.get("/pagar")
+    rotulo_origem = f"de {mes_1[5:7]}/{mes_1[:4]}"
+    checa("linha de mês anterior vem marcada na lista", rotulo_origem in html_pagar,
+          f"não achei o rótulo {rotulo_origem!r}")
+    checa("e o aviso de exclusão diz de que mês ela é",
+          f"não deste mês" in html_pagar and rotulo_origem.replace("de ", "") in html_pagar)
+
+    # Com token válido, para a requisição chegar ao roteamento em vez de morrer
+    # antes no CSRF (que devolveria 400 e esconderia se a rota ainda existe).
+    status_rota, _ = c_rec.post("/gerar-recorrencias",
+                                {"csrf_token": c_rec.csrf("/pagar"), "mes_destino": mes_hoje})
+    checa("o botão manual não existe mais", status_rota == 404, f"status {status_rota}")
+    checa("e o painel não oferece mais o botão", "Gerar Recorrências" not in html_rec)
 
     print("\nAdministração", flush=True)
     status, html = c.get("/admin/tenants")

@@ -1,6 +1,6 @@
 # 📊 Documentação: Sistema Financeiro (Gestão Financeira — Empresa & Casa)
 
-> Atualizado em 2026-08-25 a partir do código real (`app.py`, `database.py`, `calculos.py`, `emailer.py`, `templates/`).
+> Atualizado em 2026-09-04 a partir do código real (`app.py`, `database.py`, `calculos.py`, `emailer.py`, `templates/`).
 > Cópia única: a duplicata que existia em `Agentes/` foi apagada em 25/08/2026 — duas cópias do mesmo documento é a receita para uma ficar velha sem ninguém notar.
 
 Sistema web (Flask + SQLite) de controle de contas a pagar e a receber, organizado em **duas dimensões independentes**:
@@ -136,6 +136,23 @@ Ponto de partida do caixa de cada esfera.
 
 `UNIQUE (tenant_id, esfera)`.
 
+### 2.7 `recorrencias_geradas`
+Registro de que mês já teve suas recorrências geradas.
+
+| Campo | Tipo | Observação |
+|---|---|---|
+| `id` | INTEGER PK | |
+| `tenant_id` | INTEGER FK → `tenants.id` | |
+| `mes` | TEXT | `AAAA-MM` |
+| `gerado_em` | TEXT | `AAAA-MM-DD` da geração |
+| `quantidade` | INTEGER | quantos lançamentos aquela geração criou |
+
+`UNIQUE (tenant_id, mes)`.
+
+Existe por um motivo só: **sem ele, a geração automática ressuscitaria na visita seguinte toda conta recorrente que a organização apagasse de propósito.** A linha é gravada *antes* da geração (ver §3.4), o que de quebra impede geração em dobro com duas abas abertas.
+
+A migração marca **todos os meses até o corrente** como já gerados, para cada organização. O automático só age da virada seguinte em diante, nunca para trás.
+
 ---
 
 ## 3. Regras de Negócio (`calculos.py`)
@@ -159,10 +176,19 @@ Filtro guardado na sessão (`session["esfera_filtro"]`), trocado via `/trocar-es
 ### 3.3 Listagem e atrasados de meses anteriores
 `listar_lancamentos(...)` inclui, por padrão (`incluir_atrasados_anteriores=True`), lançamentos de meses anteriores que ainda não foram pagos/recebidos. Assim uma conta atrasada não "some" ao virar o mês.
 
-### 3.4 Recorrências
-Duas rotinas complementares:
+**Isso já custou dados.** Em 04/09/2026 a Lois apagou, na tela de setembro, linhas que eram registros de agosto trazidos por essa regra — e elas sumiram de agosto, de vez. A tela não dava nenhum sinal de que aquelas linhas pertenciam a outro mês: só a data na coluna Vencimento, fácil de não notar no meio da lista.
 
-- **`gerar_recorrencias_do_mes(tenant_id, mes_destino)`** — acionada manualmente pelo botão "Gerar Recorrências". Copia lançamentos `Mensal` do mês anterior para o mês de destino (mantendo o dia do vencimento) e avança `Semanal`/`Quinzenal` em blocos de 7/14 dias até cobrir o mês.
+Desde então, em `/pagar` e `/receber`, toda linha de mês anterior vem com:
+- fundo destacado e uma tarja **"⚠ de MM/AAAA"** ao lado da data, com explicação no `title`;
+- confirmação de exclusão diferente, que nomeia o mês de origem em vez de perguntar só "Excluir esta conta?".
+
+Quem mexer nesses templates precisa preservar as duas coisas. O `set de_outro_mes = l.vencimento[:7] < mes_ano` é o que separa uma linha da outra.
+
+### 3.4 Recorrências
+Três rotinas complementares:
+
+- **`gerar_recorrencias_do_mes(tenant_id, mes_destino)`** — copia lançamentos `Mensal` do mês anterior para o mês de destino (mantendo o dia do vencimento) e avança `Semanal`/`Quinzenal` em blocos de 7/14 dias até cobrir o mês. Não é chamada direto por nenhuma tela.
+- **`gerar_recorrencias_pendentes(tenant_id, mes_corrente=None)`** — o que a tela usa. Roda de carona na visita ao painel (não há agendador) e põe em dia todos os meses ainda não gerados até o corrente, um a um. Cada mês gerado fica registrado em `recorrencias_geradas` **antes** da geração, e nunca é refeito: é isso que impede uma conta apagada de propósito de voltar sozinha na visita seguinte, e que evita geração em dobro com duas abas abertas. A varredura mês a mês existe porque cada mês copia do seu anterior — pular um deixaria o seguinte sem origem. Não existe botão manual (removido em 04/09/2026).
 - **`projetar_recorrencias_do_mes(tenant_id, dados)`** — acionada automaticamente ao criar/editar um lançamento `Semanal` ou `Quinzenal`. Gera de uma vez todas as ocorrências restantes dentro do mesmo mês.
 
 Ambas evitam duplicidade comparando a chave `(descrição, tipo, esfera, valor, vencimento)`.
@@ -323,7 +349,6 @@ Organização nova nasce **desligada**. A migração liga para quem já tinha la
 | `/pagar` + `/novo`, `/<id>/editar`, `/<id>/toggle-status`, `/<id>/excluir` | CRUD de Contas a Pagar |
 | `/receber` + `/novo`, `/<id>/editar`, `/<id>/toggle-status`, `/<id>/excluir` | CRUD de Contas a Receber (bloqueado para itens vindos do webhook) |
 | `/categorias` + `/nova`, `/<id>/editar`, `/<id>/excluir` | CRUD de categorias |
-| `/gerar-recorrencias` | Dispara a geração de recorrentes para um mês |
 | `/exportar/<tipo>` | Baixa os lançamentos do mês em CSV. Respeita o filtro de esfera e, em Pagar, o filtro de nível. Separador `;`, vírgula decimal e BOM `utf-8-sig` — é o que faz o arquivo abrir certo no Excel em português |
 
 ### Administração de plataforma (`@admin_required`)
@@ -376,7 +401,7 @@ O menu principal ficou só com Dashboard, Contas a Pagar e Contas a Receber (25/
 ./venv/bin/python .claude/skills/run-sistema-financeiro/driver.py smoke
 ```
 
-Sobe o app num banco temporário, exercita 93 checagens e sai com 0 ou 1. **Nunca toca no `financeiro.db` real.** Rodar depois de qualquer mudança.
+Sobe o app num banco temporário, exercita 104 checagens e sai com 0 ou 1. **Nunca toca no `financeiro.db` real.** Rodar depois de qualquer mudança.
 
 `driver.py serve` sobe com dados de demonstração e imprime as credenciais, para inspeção no navegador.
 
